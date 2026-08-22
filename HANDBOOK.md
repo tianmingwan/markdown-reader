@@ -42,6 +42,9 @@
 | **Android SDK/JDK** | `D:\Android\Sdk`（platform-36, build-tools 35/36, NDK 27.3.13750724）；`D:\Java\jdk-21.0.12+8`；环境变量 `ANDROID_HOME`/`JAVA_HOME` 已设 |
 | **rustup 安卓目标** | 4 个（aarch64/armv7/i686/x86_64-linux-android）已装；离线包在 `C:\rustdist`（配 `RUSTUP_DIST_SERVER=file:///C:/rustdist` 可重装） |
 | **cargo-ndk** | 已装 v4.1.2，但**手动运行报 "No chunk"**（NDK 版本检测问题）——tauri CLI 内部可用，别单独依赖 cargo-ndk |
+| **本机网络走 fake-IP 代理**（2026-08-22 实测） | DNS 把 `github.com` 解析到 `198.18.0.52` / `fdfe:dcba:9876::33`（Clash 类 TUN 的保留段）。**git 的 HTTPS TLS 握手会被掐断**（schannel 报 "missing close_notify"、openssl 报 "unexpected eof"，重试无效）；`gh` CLI（Go HTTP 栈）不受影响。**git 操作必须走 SSH**：本项目 origin 已是 `git@github.com:tianmingwan/markdown-reader.git`，**勿改回 HTTPS** |
+| **git 身份 / SSH 密钥** | 仓库本地 `user.name=tianmingwan`、`user.email=tianmingwan@users.noreply.github.com`；`~\.ssh\id_ed25519` 已注册到 GitHub（`ssh -T git@github.com` 可验证） |
+| **gh CLI 已认证** | `gh auth status`：账号 `tianmingwan`，token 存系统 keyring（scope: repo/gist/read:org），建仓/发 Release 直接用 gh |
 
 ## 4. 桌面交付物（在桌面）
 
@@ -63,12 +66,15 @@
 ```powershell
 $env:Path = "$env:USERPROFILE\mingw64\mingw64\bin;$env:Path"
 cd "C:\Users\aakb\Desktop\markdown 阅读器"
-npm run tauri dev      # 开发（vite + cargo）
-npm run tauri build    # 安装包 → C:\mdrtarget\release\bundle\nsis\
-cargo test -p mdreader-core   # 16 个单元测试（core crate，纯 Rust 不依赖 tauri）
+npm install              # ⚠️ 2026-08-22 清理后 node_modules 已删，编译前必先装
+npm run tauri dev        # 开发（vite + cargo）
+npm run tauri build      # 安装包 → C:\mdrtarget\release\bundle\nsis\
+npm test                 # 前端 Mermaid 深度测试 13 用例（jsdom + 真实 mermaid）
+npm run test:rust        # Rust 核心测试 20 用例（等价 cargo test -p mdreader-core）
 ```
 > 前端构建 `npm run build` 必须在**真实路径**跑（junction 会触发 vite 绝对路径 bug；已无 junction）。
 > 原 `scripts/`（ui-test/sort-check）与 `test.html` 已删除（对安卓无用）；`vite.config.ts` 的 `server.fs.allow` 已处理 junction 兼容。
+> ⚠️ `C:\mdrtarget` 已于 2026-08-22 清理删除：首次编译会**从头构建**（桌面 release 约 2-5 分钟，Android 4 ABI 约 10-20 分钟），之后增量编译正常。`src-tauri\target` 是重定向前遗留的 10GB debug 产物，已删，勿再生成。
 
 ### 安卓（关键：Windows 无开发者模式 → 必须绕过 tauri 的 symlink）
 完整流程见 **`ANDROID_BUILD_STATUS.md`**。要点：
@@ -90,6 +96,10 @@ cargo test -p mdreader-core   # 16 个单元测试（core crate，纯 Rust 不�
 - **排序 1,10,2,3** → 自然排序（前后端一致）
 - **"下一层没排序"** → 是"文件大小"排序模式造成的观感（文件夹 size 全 0），已改为文件夹 size=子树总大小 + 用户排序重置为名称A→Z
 - **安卓插件 API** → tauri 2.11 新版（@TauriPlugin/@Command/@ActivityCallback + Rust 侧 register_android_plugin），旧 @JniMethod/Plugin(manager) 已废弃
+- **Mermaid 重复图表 id 冲突** → mermaid.ts `rekeySvg` 必须覆盖 **4 种 id 形态**：`id="mmd-N"`、`id="mmd-N-xxx"`（破折号）、`id="mmd-N_xxx"`（**flowchart-v2 的 marker 用下划线**，漏掉会重复）、`<style>` 里的 `#mmd-N{...}` 选择器。mermaid 11 的 `render()` 内部排队串行 + 自动处理 `%%{init}%%`，无需并发池
+- **勿在 globals.d.ts 声明 mermaid** → 曾写 `declare module 'mermaid' { const mermaid: any }`，把 mermaid 11 自带的完整类型遮蔽掉（TS 报 "no exported member 'Mermaid'"），已删除；mermaid 类型直接 `import type { Mermaid, MermaidConfig, RenderResult } from 'mermaid'`
+- **jsdom 测 mermaid 三件套**（tests/mermaid.test.mjs）→ ① 全局补 `CSSStyleSheet`（否则 `createCssStyles` 报 "CSSStyleSheet is not defined"）；② `SVGElement.prototype.getBBox` polyfill **不能全零**（时序图 `calculateTextDimensions` 会报 "svg element not in render tree"），用 `{width:10,height:10}`；③ Node≥21 的 `globalThis.navigator` 是只读 getter，需 `Object.defineProperty` 覆盖
+- **列表内 mermaid 缩进** → pulldown_cmark 对列表嵌套代码块**自动剥公共缩进**，`<pre class="mermaid">` 里是干净代码；前端 dedent 仅兜底其它场景
 
 ## 8. 代码结构速览
 
@@ -110,3 +120,29 @@ src-tauri\          Rust 后端
   gen\android\      生成安卓工程（勿重新 init）
   .cargo\config.toml 构建修复
 ```
+
+## 9. GitHub 发布与项目清理状态（2026-08-22 会话更新）
+
+### 远程仓库（**公开**）
+
+- **仓库**：https://github.com/tianmingwan/markdown-reader （PUBLIC，任何人可访问；内含隐私已扫描确认无敏感信息）
+- **Releases**：`v0.1.0`（https://github.com/tianmingwan/markdown-reader/releases/tag/v0.1.0）
+  - `MarkdownReader_0.1.0_x64-setup.exe`（Windows x64 NSIS，4.0MB）
+  - `app-debug.apk`（Android debug，4 ABI，56.7MB）
+- **推送方式**：`git push`（origin 是 SSH）；发新版：构建产物后 `gh release create v0.2.0 <安装包> <apk> --notes-file ...`
+- **本地 git 状态**：main 分支 2 个提交（db3b789 初始 + 1e7f3e6 文档），工作区干净
+
+### 项目清理（体积：10.4GB → 40.5MB）
+
+2026-08-22 会话应要求删除全部可再生构建产物，**只保留源码 + 未来编译必需**：
+- 已删：`src-tauri\target`（10GB 旧 debug）、`C:\mdrtarget`（8GB cargo 目录）、`node_modules`、`dist`、`gen\android\app\build`、`gen\android\.gradle`、`gen\android\app\src\main\assets`
+- 保留：全部源码、`gen\android` 工程文件（含手动修改）、`WebView2Loader.dll`、`.git`、文档
+- **影响**：未来编译先 `npm install`；`C:\mdrtarget` 会自动重建（首轮全量编译）
+
+### 文档重命名对照（若在旧对话/旧记录里看到旧名）
+
+| 旧文件名 | 新文件名 |
+|---|---|
+| 使用与构建说明.md | **BUILD.md** |
+| 项目状态与交接手册.md | **HANDBOOK.md** |
+| 性能优化研究报告.md | **PERFORMANCE.md** |
