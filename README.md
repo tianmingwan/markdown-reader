@@ -17,6 +17,20 @@
 | 主题：浅色 / 深色 / 跟随系统 | Themes: light / dark / system |
 | 安卓 SAF 目录授权 | Android SAF folder access |
 
+## ⬇️ 下载 / Download
+
+最新版本发布在 **GitHub Releases**（二进制不进入代码仓库）：
+
+| 平台 / Platform | 文件 / Asset | 说明 / Notes |
+| --- | --- | --- |
+| Windows (x64) | `MarkdownReader_*.x64-setup.exe` | NSIS 安装包，Windows 10/11 |
+| Android | `app-debug.apk` | debug 构建，含 arm64 / arm / x86 / x86_64 四个 ABI |
+
+👉 [Releases 页面 / Releases page](https://github.com/tianmingwan/markdown-reader/releases)
+
+> APK 为 debug 构建：可正常安装使用（Android 8+），体积较大（~60MB，含 4 个 ABI）。
+> The APK is a debug build: installable and usable (Android 8+), larger size (~60MB, 4 ABIs included).
+
 ## 🚀 快速开始 / Quick Start
 
 ```bash
