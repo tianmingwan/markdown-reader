@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>markdown阅读器</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="toolbar">
+        <button id="btn-sidebar" class="icon-btn" title="折叠/展开侧边栏">☰</button>
+        <button id="btn-open" class="btn-primary" title="打开一个文件夹">📂 打开文件夹</button>
+        <div class="search-box">
+          <input
+            id="search-input"
+            type="text"
+            placeholder="搜索文件名/内容…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <span id="search-clear" class="search-clear" hidden>✕</span>
+        </div>
+        <div class="spacer"></div>
+        <div class="font-box" title="调整正文字号">
+          <button id="btn-font-dec" class="icon-btn" title="减小字号">A−</button>
+          <button id="btn-font-inc" class="icon-btn" title="增大字号">A+</button>
+        </div>
+        <div class="menu-wrap">
+          <button id="btn-theme" class="icon-btn" title="切换主题">◐</button>
+          <div id="theme-pop" class="pop-menu" hidden>
+            <button data-theme="system">跟随系统</button>
+            <button data-theme="light">☀️ 浅色</button>
+            <button data-theme="dark">🌙 深色</button>
+          </div>
+        </div>
+        <div class="menu-wrap">
+          <button id="btn-recent" class="icon-btn" title="最近打开的文件夹">▾ 最近</button>
+          <div id="recent-pop" class="pop-menu recent-pop" hidden></div>
+        </div>
+      </header>
+
+      <nav id="tabs" class="tabs"></nav>
+
+      <div class="body">
+        <aside id="sidebar" class="sidebar">
+          <div id="tree-header" class="tree-header" hidden></div>
+          <div id="tree" class="tree"></div>
+          <div id="search-results" class="search-results" hidden></div>
+        </aside>
+
+        <main id="preview-wrap" class="preview-wrap">
+          <div id="empty-state" class="empty-state">
+            <div class="empty-icon">📖</div>
+            <h2>markdown阅读器</h2>
+            <p>点击「打开文件夹」选择一个目录，开始阅读其中的 markdown 文档</p>
+            <div id="recent-hint" class="recent-hint" hidden></div>
+          </div>
+          <div id="loading" class="loading" hidden>渲染中…</div>
+          <article id="preview" class="preview" hidden>
+            <div id="preview-content" class="preview-content"></div>
+          </article>
+        </main>
+      </div>
+
+      <footer id="statusbar" class="statusbar"></footer>
+    </div>
+    <div id="toast" class="toast" hidden></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

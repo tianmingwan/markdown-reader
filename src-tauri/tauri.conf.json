@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MarkdownReader",
+  "version": "0.1.0",
+  "identifier": "com.chensdong.mdreader",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "markdown阅读器",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 720,
+        "minHeight": 480,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "C:/mdricons/32x32.png",
+      "C:/mdricons/128x128.png",
+      "C:/mdricons/128x128@2x.png",
+      "C:/mdricons/icon.icns",
+      "C:/mdricons/icon.ico"
+    ],
+    "resources": [
+      "WebView2Loader.dll"
+    ],
+    "windows": {
+      "nsis": {
+        "languages": ["SimpChinese"],
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

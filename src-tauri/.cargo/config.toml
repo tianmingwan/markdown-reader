@@ -1,0 +1,13 @@
+# 构建修复（本机 windows-gnu/MinGW 环境必需）：
+#
+# 1. 中文/空格路径下 windres/cpp 无法处理（UTF-8 被按 ANSI 读成 ???），
+#    因此固定使用 ASCII 的 target 目录，保证 OUT_DIR 始终是纯 ASCII。
+#    （图标也放在 ASCII 路径 C:\mdricons，见 tauri.conf.json 的 bundle.icon）
+#
+# 2. rustc 对 cdylib 默认导出全部符号，超过 PE 导出序号上限(65535)报
+#    "export ordinal too large"；桌面端不需要导出，禁用即可。
+[build]
+target-dir = "C:/mdrtarget"
+
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-arg=-Wl,--exclude-all-symbols"]
