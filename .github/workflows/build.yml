@@ -1,0 +1,58 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+
+      - name: setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: 'npm'
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          # 覆盖 .cargo/config.toml 里 Windows 专用的 target-dir，保证缓存命中默认路径
+          workspaces: './src-tauri -> target'
+
+      - name: install frontend dependencies
+        run: npm ci
+
+      - name: build Tauri app (deb + AppImage)
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 覆盖 .cargo/config.toml 的 target-dir = "C:/mdrtarget"（Windows 专用，Linux 下无效）
+          CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+
+      - name: upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+
+      - name: upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
