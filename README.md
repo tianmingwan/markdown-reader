@@ -24,7 +24,12 @@
 | 平台 / Platform | 文件 / Asset | 说明 / Notes |
 | --- | --- | --- |
 | Windows (x64) | `MarkdownReader_*.x64-setup.exe` | NSIS 安装包，Windows 10/11 |
+| Ubuntu / Debian | `markdownreader_*.deb` | `sudo dpkg -i markdownreader_*.deb` 安装 |
+| Linux | `MarkdownReader_*.AppImage` | 免安装，`chmod +x` 后直接运行 |
 | Android | `app-debug.apk` | debug 构建，含 arm64 / arm / x86 / x86_64 四个 ABI |
+
+> 打标签 `v*`（如 `git tag v0.1.0 && git push origin v0.1.0`）后，GitHub Actions 会自动编译并发布 Release。
+> Pushing a `v*` tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) triggers an automatic CI build and Release.
 
 👉 [Releases 页面 / Releases page](https://github.com/tianmingwan/markdown-reader/releases)
 
