@@ -15,7 +15,7 @@
 - md→HTML 全 Rust 后端渲染（pulldown-cmark + syntect 代码高亮）
 - KaTeX 公式、Mermaid 流程图/时序图按需加载（Mermaid：SVG 缓存 + 逐图错误隔离 + 重复图表 id 去重）
 - 全文搜索（文件名 + 内容）、文件热更新、浅色/深色/跟随系统主题
-- 跨平台：Windows 桌面 + 安卓平板（SAF 目录授权）
+- 跨平台：Windows 桌面 + 安卓手机/平板（SAF 目录授权）
 
 ## 🔧 测试 / Tests
 

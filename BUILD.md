@@ -1,9 +1,9 @@
 # markdown阅读器 · Markdown Reader
 
-> EN: Build & usage guide for the Markdown Reader (Rust + Tauri 2, Windows desktop & Android tablet).
+> EN: Build & usage guide for the Markdown Reader (Rust + Tauri 2, Windows desktop & Android phones/tablets).
 > 中文正文见下。
 
-打开即预览的 Markdown 阅读器 —— **Rust + Tauri 2**，支持 **Windows 桌面** 与 **安卓平板**（同一套代码）。
+打开即预览的 Markdown 阅读器 —— **Rust + Tauri 2**，支持 **Windows 桌面** 与 **安卓手机/平板**（同一套代码）。
 
 ## ✨ 功能
 
@@ -70,7 +70,7 @@ cargo test -p mdreader-core   # 11 个单元测试：渲染/高亮/扫描/搜索
 
 核心逻辑全部在独立 crate `mdreader-core`（不依赖 Tauri），测试可在任何环境运行。
 
-## 🤖 安卓平板（SAF 方式）
+## 🤖 安卓（SAF 方式）
 
 安卓系统不允许像电脑一样任意选择文件夹，阅读器采用 **SAF（Storage Access Framework）**：
 点「打开文件夹」→ 系统文件选择器授权一个目录树 → 授权后即可浏览其下全部 md（授权持久化，下次启动无需重选）。
@@ -92,8 +92,11 @@ npm run tauri android init
 #    拷错包名会导致启动时 ClassNotFoundException 崩溃）：
 Copy-Item src-tauri\android-extras\SafPlugin.kt src-tauri\gen\android\app\src\main\java\com\chensdong\mdreader\SafPlugin.kt -Force
 
-# ② 新版 tauri-android 用 @TauriPlugin 注解 + register_android_plugin 自动实例化，
-#    无需修改 MainActivity。
+# ② 拷贝手机支持版 MainActivity（返回键拦截 + debug WebView 调试；覆盖生成工程的同名文件）：
+Copy-Item src-tauri\android-extras\MainActivity.kt src-tauri\gen\android\app\src\main\java\com\chensdong\mdreader\MainActivity.kt -Force
+
+# ③ 新版 tauri-android 用 @TauriPlugin 注解 + register_android_plugin 自动实例化，
+#    无需修改 MainActivity 注册插件。
 ```
 
 ### 构建 APK
@@ -114,7 +117,7 @@ Copy-Item src-tauri\tauri.conf.json src-tauri\gen\android\app\src\main\assets\ -
 npm run tauri android build   # → gen\android\app\build\outputs\apk\debug\app-debug.apk
 ```
 
-传到平板安装，或连接平板后 `npm run tauri android dev` 热更新调试。
+传到手机/平板安装，或连接设备后 `npm run tauri android dev` 热更新调试。
 
 > ✅ 本机 Android SDK（`D:\Android\Sdk`）、JDK（`D:\Java\jdk-21.0.12+8`）、NDK 27 均已就绪；
 > Rust 桥接（`src-tauri/src/saf/`）与 Kotlin 插件（`src-tauri/android-extras/SafPlugin.kt`，包名

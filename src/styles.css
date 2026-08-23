@@ -111,6 +111,18 @@ body {
   padding: 5px 9px !important;
 }
 
+/* 手机阅读视图顶栏：当前文档名（桌面默认隐藏） */
+.reader-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text);
+  display: none;
+}
+
 .search-box {
   position: relative;
   flex: 1;
@@ -792,16 +804,83 @@ mark {
   box-shadow: var(--shadow);
 }
 
-/* ============ 窄屏（安卓竖屏等） ============ */
+/* ============ 窄屏（手机竖屏：主从视图） ============ */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 @media (max-width: 720px) {
-  .sidebar {
-    width: 210px;
+  /* 顶栏安全区（刘海/挖孔屏） */
+  .toolbar {
+    padding-top: max(8px, env(safe-area-inset-top));
   }
+
+  /* ---- 列表视图：文件树全屏 ---- */
+  body.phone-list:not(.phone-empty) .preview-wrap {
+    display: none;
+  }
+  body.phone-list .sidebar {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    border-right: none;
+  }
+  body.phone-list #btn-sidebar,
+  body.phone-list .font-box,
+  body.phone-list .reader-title,
+  body.phone-list .tabs {
+    display: none;
+  }
+  body.phone-list .search-box {
+    max-width: none;
+    min-width: 80px;
+  }
+  /* 无根目录：列表区让位给空状态引导页 */
+  body.phone-empty .sidebar {
+    display: none;
+  }
+
+  /* ---- 阅读视图：正文全屏 ---- */
+  body.phone-reader .sidebar,
+  body.phone-reader .tabs,
+  body.phone-reader .statusbar,
+  body.phone-reader .search-box,
+  body.phone-reader #btn-open,
+  body.phone-reader #btn-sidebar,
+  body.phone-reader #btn-recent {
+    display: none;
+  }
+  body.phone-reader .preview-wrap {
+    width: 100%;
+  }
+  body.phone-reader .reader-title {
+    display: block;
+  }
+
+  /* ---- 触摸目标 ≥ 44px ---- */
+  .tree-row {
+    padding-top: 12px;
+    padding-bottom: 12px;
+    font-size: 14px;
+  }
+  .icon-btn {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 8px 12px;
+  }
+  .pop-menu button,
+  .recent-item {
+    padding: 12px 10px;
+  }
+
+  /* ---- 正文与底部安全区（手势条/导航条） ---- */
   .preview-content {
-    padding: 16px 18px 40px;
-    font-size: var(--md-font-size, 14px);
+    padding: 16px 18px max(40px, env(safe-area-inset-bottom));
   }
-  .search-box {
-    max-width: 160px;
+  .statusbar {
+    padding-bottom: max(5px, env(safe-area-inset-bottom));
+  }
+  .search-box input {
+    font-size: 16px; /* 防聚焦时自动放大（与桌面一致） */
   }
 }

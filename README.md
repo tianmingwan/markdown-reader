@@ -1,7 +1,7 @@
 # Markdown Reader · markdown阅读器
 
 > **打开即预览的 Markdown 阅读器** — An open-and-preview Markdown reader.
-> **Rust + Tauri 2** · Windows 桌面 + 安卓平板（同一套代码）· Windows desktop & Android tablet from one codebase.
+> **Rust + Tauri 2** · Windows 桌面 + 安卓手机/平板（同一套代码）· Windows desktop & Android phones/tablets from one codebase.
 
 ## ✨ 特性 / Features
 

@@ -57,6 +57,12 @@ $env:JAVA_HOME = "D:\Java\jdk-21.0.12+8"
 - `gradle.properties`：加 `android.overridePathCheck=true`（中文路径）
 - `settings.gradle` / `build.gradle.kts` / `buildSrc`：阿里云/腾讯镜像仓库（勿覆盖）
 - `app\build.gradle.kts`：注释 `id("rust")` + 删除 `rust {}` 块
+- `MainActivity.kt`（手机主从视图，2026-08-22 加；**权威副本在 `src-tauri\android-extras\MainActivity.kt`**，重跑 init 后按 BUILD.md 拷回）：
+  - `override val handleBackNavigation = false`：关闭 WryActivity 默认「WebView 历史回退」
+    （history.pushState 会让历史栈随打开文档数永久增长，列表页按返回需连按 N 次才退出）
+  - 注册 `OnBackPressedCallback` → `evaluateJavascript("window.__mdBack()")`：
+    返回 `"list"` 表示前端已处理（阅读→列表 / 关闭下拉菜单），否则 `finish()` 退出
+  - `if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)`：debug 构建开 WebView 调试
 
 > 若日后能开开发者模式（设置→开发者选项→开发者模式，需管理员），可直接 `tauri android build`，无需以上绕过。
 
@@ -95,6 +101,32 @@ $env:JAVA_HOME = "D:\Java\jdk-21.0.12+8"
 > 5. **搜索在安卓失效**：a) Rust 搜索走文件系统遍历，对 SAF content URI 无效 → Kotlin 实现 SAF 搜索；b) 移动端插件命令不能是 async（JNI 响应丢失）→ 同步命令 `search_files_saf`；c) `resolveObject(JSONArray)` 被 Jackson 序列化成 `{}` → 必须 `resolve(JSObject)` 包装。
 > 6. **标签名乱码**：SAF docId 是百分号编码，`path.split('/').pop()` 取到整个编码串 → 从目录树取权威名字 + decode 兜底。
 > 7. **性能优化**：目录扫描每目录 3 查询→1 查询 + 顶层并行 4 线程；搜索两阶段 + 并行读文件 + 内容缓存（uri+mtime 键，32MB 上限）；读取改流式/分块 base64 降内存；目录 size 累计（修复安卓按大小排序）。
+
+## 📱 手机验证（2026-08-22，Android Studio 模拟器 test_avd / Android 16 / x86_64 / 1080×2400 / 420dpi）
+
+**结论：手机模式（主从视图）可用，返回键/旋转/搜索/会话恢复全部通过。**
+（test_avd 在 `D:\Android\avd`，ANDROID_AVD_HOME 已设；启动命令见下。）
+
+| 验证项 | 结果 |
+|---|---|
+| 手机模式判定 | viewport 412dp → body.phone-list / phone-reader；横屏 915dp → 自动回双栏 |
+| 列表视图 | 文件树全屏（sidebar 412px），tabs/顶栏多余按钮隐藏，触摸目标 ≥44px |
+| 阅读视图 | 正文全屏 + 顶栏「← + 文档名 + A−/A+ + ◐」，状态栏/标签栏隐藏 |
+| 系统返回键 | 阅读→列表 ✓；列表→退出应用 ✓；下拉菜单打开时返回→关菜单不退出 ✓ |
+| 历史栈 | 恒定 1 条（Kotlin 拦截方案，无 pushState 增长问题） |
+| 会话恢复 | 重启自动恢复 SAF 根目录 + 上次文档 |
+| SAF 全链路 | 授权/扫描/搜索/打开/阅读正常（与平板一致） |
+| 搜索 | 列表视图内搜 "String" 命中 1 文件，点结果进阅读视图 ✓ |
+| 横竖屏旋转 | 竖屏主从 ↔ 横屏双栏，视图状态保持（活动文档自动回阅读视图） |
+| 字号/主题 | 阅读视图 A+/A− 与主题菜单可用（列表视图隐藏字号组） |
+
+> 补充（2026-08-22 晚）：**Redmi 2510DRK44C 真机**（Android 16 / arm64-v8a / 1156×2510 / 480dpi，CSS 视口约 385dp）已安装同一 APK 验证：
+> 手机模式布局正确（列表/空状态全屏、顶栏无溢出）、SAF 授权由人工在真机完成并确认可用、`__mdBack` 返回键回调就绪。
+> 注：该机 uiautomator 桥不可用（null root node），真机 UI 自动化验证受限，交互细节以人工确认 + CDP 探测为准。
+
+> 模拟器启动（本机 headless + 关 Vulkan 可避免卡死）：
+> `D:\Android\Sdk\emulator\emulator.exe -avd test_avd -no-window -no-snapshot -no-audio -no-boot-anim -no-metrics -gpu swiftshader_indirect -feature -Vulkan`
+> 前端验证走 WebView 远程调试：`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>` + `node tests/cdp.mjs "<expr>"`
 
 ## 下一步（可继续验证的功能）
 

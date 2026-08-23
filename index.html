@@ -2,12 +2,14 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>markdown阅读器</title>
   </head>
   <body>
     <div id="app">
       <header class="toolbar">
+        <button id="btn-back" class="icon-btn" title="返回文件列表" hidden>←</button>
+        <div id="reader-title" class="reader-title" title="当前文档"></div>
         <button id="btn-sidebar" class="icon-btn" title="折叠/展开侧边栏">☰</button>
         <button id="btn-open" class="btn-primary" title="打开一个文件夹">📂 打开文件夹</button>
         <div class="search-box">

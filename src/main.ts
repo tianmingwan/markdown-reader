@@ -26,6 +26,8 @@ const searchClear = $<HTMLElement>('search-clear');
 const recentPop = $<HTMLElement>('recent-pop');
 const themePop = $<HTMLElement>('theme-pop');
 const recentHint = $<HTMLElement>('recent-hint');
+const btnBack = $<HTMLElement>('btn-back');
+const readerTitle = $<HTMLElement>('reader-title');
 
 let safPollTimer: number | undefined;
 let lastSafSignature = '';
@@ -34,6 +36,76 @@ let safScanning = false;
 /** 预览内容元素（居中限宽层；article 只是整宽滚动容器） */
 function contentEl(): HTMLElement {
   return document.querySelector('#preview-content') ?? article;
+}
+
+// ---------------- 手机模式（主从视图：列表页 ↔ 阅读页） ----------------
+// 断点与平板/桌面一致：≤720px 视为手机竖屏。横屏手机/平板宽度 >720px 自动回到双栏布局。
+const phoneMQ = window.matchMedia('(max-width: 720px)');
+let isPhone = phoneMQ.matches;
+let view: 'list' | 'reader' = 'list';
+
+/** 按当前手机状态同步 body class 与顶栏按钮 */
+function applyView(): void {
+  document.body.classList.remove('phone', 'phone-list', 'phone-reader', 'phone-empty');
+  if (!isPhone) return; // 平板/桌面：恢复双栏
+  document.body.classList.add('phone');
+  if (view === 'reader') {
+    document.body.classList.add('phone-reader');
+  } else {
+    document.body.classList.add('phone-list');
+    // 无根目录时列表区空无一物 → 让位给空状态引导页
+    if (!state.root) document.body.classList.add('phone-empty');
+  }
+  btnBack.hidden = view !== 'reader';
+}
+
+/** 切回列表视图（顶栏返回按钮 / Android 系统返回键触发） */
+function showList(): void {
+  if (!isPhone || view === 'list') return;
+  view = 'list';
+  applyView();
+  updateStatus();
+}
+
+/** 进入阅读视图（列表 → 阅读） */
+function showReader(): void {
+  if (!isPhone || view === 'reader') return;
+  view = 'reader';
+  applyView();
+}
+
+function setupPhoneMode(): void {
+  // 顶栏返回按钮（桌面隐藏；手机阅读视图可见）
+  btnBack.addEventListener('click', () => showList());
+  // Android 系统返回键：由 MainActivity 拦截后回调这里。
+  // 返回 'list' = 已处理（阅读→列表）；返回 'exit' = 应退出应用（列表页按返回）。
+  // 不用 history API：每次 pushState 都会让 WebView 历史栈永久增长，
+  // 导致列表页按返回要连按 N 次才能退出（N=会话内打开的文档数）。
+  (window as any).__mdBack = (): string => {
+    // 先关闭可能打开的下拉菜单
+    const openPop = [...document.querySelectorAll<HTMLElement>('.pop-menu')].find((p) => !p.hidden);
+    if (openPop) {
+      openPop.hidden = true;
+      return 'list';
+    }
+    if (isPhone && view === 'reader') {
+      showList();
+      return 'list';
+    }
+    return 'exit';
+  };
+  // 横竖屏切换 / 窗口尺寸变化时重新判定
+  phoneMQ.addEventListener('change', (e) => {
+    isPhone = e.matches;
+    if (!isPhone) {
+      view = 'list';
+      applyView();
+      return;
+    }
+    view = state.activePath ? 'reader' : 'list';
+    applyView();
+  });
+  applyView();
 }
 
 // ---------------- 字号调节 ----------------
@@ -73,12 +145,14 @@ function toast(msg: string): void {
 
 // ---------------- 状态栏 ----------------
 function updateStatus(): void {
+  const tab = state.tabs.find((t) => t.path === state.activePath) ?? null;
+  // 手机阅读视图顶栏标题
+  readerTitle.textContent = tab ? tab.name : '';
   const root = state.root;
   if (!root || !state.tree) {
     statusbar.textContent = '';
     return;
   }
-  const tab = state.tabs.find((t) => t.path === state.activePath) ?? null;
   const pct = tab ? Math.round(tab.ratio * 100) : 0;
   const size = tab ? formatSize(tab.size) : '';
   statusbar.textContent = `${session.rootName(root)} · ${state.tree.mdCount} 个 md  |  正在阅读：${
@@ -119,6 +193,7 @@ async function openTab(path: string, fragment?: string): Promise<void> {
   state.tabs.push(tab);
   state.activePath = path;
   repaintTabs();
+  showReader(); // 手机模式：列表 → 阅读
   showLoading();
   expandAncestorsFor(path);
 
@@ -219,9 +294,14 @@ async function paintPreview(tab: Tab): Promise<void> {
 }
 
 function activateTab(path: string): void {
-  if (state.activePath === path) return;
+  if (state.activePath === path) {
+    // 手机模式：列表页点击「当前活动文档」→ 重新进入阅读视图
+    showReader();
+    return;
+  }
   state.activePath = path;
   repaintTabs();
+  showReader(); // 手机模式：列表点击已打开文档也要进阅读视图（无操作则幂等）
   const tab = state.tabs.find((t) => t.path === path);
   if (tab) {
     if (tab.error) {
@@ -268,6 +348,8 @@ function closeTab(path: string): void {
     if (state.root && state.tree) {
       emptyState.hidden = false;
     }
+    // 手机模式：最后一个标签关闭后回到列表视图
+    if (isPhone && view === 'reader') showList();
   }
   repaintTree();
   updateStatus();
@@ -323,6 +405,11 @@ function setRoot(opened: OpenedRoot, opts: { restoreFile?: boolean } = {}): void
   startSafPoll();
   updateStatus();
   void session.flush();
+  // 手机模式：无文档时确保停在列表视图（applyView 同步 body class）
+  if (isPhone && !state.activePath) {
+    view = 'list';
+    applyView();
+  }
 }
 
 function firstMdPath(): string | null {
@@ -375,6 +462,8 @@ function applyTreeChanged(opened: OpenedRoot): void {
       if (!pathExistsInTree(tab.path)) closeTab(tab.path);
     }
   }
+  // 手机模式：活动文档消失后回到列表视图
+  if (isPhone && !state.activePath && view === 'reader') showList();
   updateStatus();
 }
 
@@ -597,6 +686,7 @@ async function boot(): Promise<void> {
   theme.watchSystem();
   setupThemeMenu();
   setupFontControls();
+  setupPhoneMode();
   setupSearch(searchInput, searchClear, resultsPanel, treePanel, (p) => void openTab(p));
   renderRecentHint();
 
