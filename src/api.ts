@@ -15,6 +15,7 @@ export const api = {
   loadSession: () => invoke<Session>('load_session'),
   openExternal: (url: string) => invoke<void>('open_external', { url }),
   resolveRel: (ctx: string, rel: string) => invoke<string>('resolve_rel', { ctx, rel }),
+  saveFile: (path: string, content: string) => invoke<void>('save_file', { path, content }),
   onTreeChanged: (cb: (opened: OpenedRoot) => void) =>
     listen<OpenedRoot>('tree-changed', (e) => cb(e.payload)),
   onFileChanged: (cb: (paths: string[]) => void) =>

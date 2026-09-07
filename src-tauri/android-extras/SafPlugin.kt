@@ -43,6 +43,12 @@ class SearchArgs {
     var query: String = ""
 }
 
+@InvokeArg
+class WriteArgs {
+    var uri: String = ""
+    var text: String = ""
+}
+
 /** 待内容匹配的文件（搜索阶段 2 用） */
 private data class PendingFile(val uri: String, val name: String, val mtime: Long)
 
@@ -421,6 +427,35 @@ class SafPlugin(private val activity: Activity) : Plugin(activity) {
             val result = readTextInternal(args.uri)
             if (result == null) invoke.reject("read failed")
             else invoke.resolveObject(result)
+        }
+    }
+
+    // —— 按文档 Uri 写文本（后台线程）——
+    @Command
+    fun writeText(invoke: Invoke) {
+        val args = invoke.parseArgs(WriteArgs::class.java)
+        runAsync(invoke) {
+            val uri = try { Uri.parse(args.uri) } catch (_: Exception) { null }
+            if (uri == null) {
+                invoke.reject("invalid uri")
+                return@runAsync
+            }
+            val ok = try {
+                activity.contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                    out.bufferedWriter(Charsets.UTF_8).use { it.write(args.text) }
+                    true
+                } ?: false
+            } catch (e: Exception) {
+                invoke.reject(e.message ?: "write failed")
+                return@runAsync
+            }
+            if (ok) {
+                // 写成功后清除搜索文本缓存中对应的条目
+                textCache.keys().toList().filter { it.startsWith("${args.uri}|") }.forEach { textCache.remove(it) }
+                invoke.resolve()
+            } else {
+                invoke.reject("write failed")
+            }
         }
     }
 

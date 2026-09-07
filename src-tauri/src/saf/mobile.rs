@@ -63,6 +63,11 @@ impl<R: Runtime> SafPlugin<R> {
         self.call("readText", serde_json::json!({ "uri": uri }))
     }
 
+    /// 按文档 Uri 写入文本
+    pub fn write_text(&self, uri: &str, text: &str) -> Result<(), String> {
+        self.call("writeText", serde_json::json!({ "uri": uri, "text": text }))
+    }
+
     /// 按文档 Uri 读取二进制（base64 中转），返回 (bytes, mime)
     pub fn read_bytes_b64(&self, uri: &str) -> Result<(Vec<u8>, String), String> {
         let v: serde_json::Value = self.call("readBytesBase64", serde_json::json!({ "uri": uri }))?;

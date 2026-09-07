@@ -22,6 +22,10 @@
           />
           <span id="search-clear" class="search-clear" hidden>✕</span>
         </div>
+        <div class="tool-group doc-actions">
+          <button id="btn-ink" class="icon-btn" title="手写笔圈画批注">🖊️ 批注</button>
+          <button id="btn-edit" class="icon-btn" title="预览直接编辑 (需手动开启)">📝 编辑</button>
+        </div>
         <div class="spacer"></div>
         <div class="font-box" title="调整正文字号">
           <button id="btn-font-dec" class="icon-btn" title="减小字号">A−</button>
@@ -51,6 +55,78 @@
         </aside>
 
         <main id="preview-wrap" class="preview-wrap">
+          <!-- 手写批注悬浮胶囊工具栏（0占用页面高度，可自由拖拽与折叠） -->
+          <div id="ink-bar" class="ink-capsule" hidden>
+            <div id="ink-drag" class="capsule-drag" title="按住拖动手写工具栏">⋮⋮</div>
+            <div class="capsule-group">
+              <button id="ink-tool-pen" class="capsule-btn active" title="画笔 (Pen)">🖊️</button>
+              <button id="ink-tool-highlighter" class="capsule-btn" title="荧光笔 (Highlighter)">🖍️</button>
+              <button id="ink-tool-eraser" class="capsule-btn" title="笔画橡皮 (Eraser)">🧹</button>
+            </div>
+            <div class="capsule-divider"></div>
+            <div class="capsule-group ink-colors">
+              <span class="color-dot active" data-color="#e53935" style="background:#e53935" title="红色"></span>
+              <span class="color-dot" data-color="#1e88e5" style="background:#1e88e5" title="蓝色"></span>
+              <span class="color-dot" data-color="#fdd835" style="background:#fdd835" title="黄色"></span>
+              <span class="color-dot" data-color="#43a047" style="background:#43a047" title="绿色"></span>
+              <span class="color-dot" data-color="#8e24aa" style="background:#8e24aa" title="紫色"></span>
+              <span class="color-dot" data-color="#212121" style="background:#212121" title="黑色"></span>
+            </div>
+            <div class="capsule-divider"></div>
+            <div class="capsule-group">
+              <select id="ink-size" class="capsule-select" title="笔触粗细">
+                <option value="2">细 2px</option>
+                <option value="4" selected>中 4px</option>
+                <option value="8">粗 8px</option>
+              </select>
+            </div>
+            <div class="capsule-divider"></div>
+            <div class="capsule-group">
+              <button id="ink-undo" class="capsule-btn" title="撤销 (Undo)">↩</button>
+              <button id="ink-redo" class="capsule-btn" title="重做 (Redo)">↪</button>
+              <button id="ink-clear" class="capsule-btn" title="清空批注">🗑️</button>
+              <button id="ink-touch" class="capsule-btn touch-btn" title="是否允许手指圈画（默认仅手写笔圈画，手指平滑滚动防误触）">👆 仅笔</button>
+            </div>
+            <div class="capsule-divider"></div>
+            <div class="capsule-group">
+              <button id="ink-min" class="capsule-btn capsule-min" title="最小化为悬浮图标">🗕</button>
+              <button id="ink-close" class="capsule-btn capsule-close" title="退出手写批注">✕</button>
+            </div>
+          </div>
+
+          <!-- 最小化悬浮徽标 -->
+          <button id="ink-badge" class="ink-badge" hidden title="展开手写工具栏">
+            <span id="ink-badge-icon" class="ink-badge-icon">🖊️</span>
+            <span id="ink-badge-dot" class="ink-badge-dot" style="background:#e53935"></span>
+          </button>
+
+
+          <!-- 预览直接编辑格式条 -->
+          <div id="edit-bar" class="context-bar edit-bar" hidden>
+            <div class="tool-group">
+              <button id="edit-bold" class="bar-btn btn-bold" title="选中文本加粗 (Ctrl+B)"><b>B</b></button>
+              <div class="menu-wrap">
+                <button id="edit-color-btn" class="bar-btn" title="修改选中文本颜色">🎨 颜色 ▾</button>
+                <div id="edit-color-pop" class="pop-menu color-pop" hidden>
+                  <button data-edit-color="#e53935"><span class="color-preview" style="background:#e53935"></span> 红色</button>
+                  <button data-edit-color="#1e88e5"><span class="color-preview" style="background:#1e88e5"></span> 蓝色</button>
+                  <button data-edit-color="#43a047"><span class="color-preview" style="background:#43a047"></span> 绿色</button>
+                  <button data-edit-color="#fb8c00"><span class="color-preview" style="background:#fb8c00"></span> 橙色</button>
+                  <button data-edit-color="#8e24aa"><span class="color-preview" style="background:#8e24aa"></span> 紫色</button>
+                  <button data-edit-color="inherit"><span class="color-preview" style="background:var(--text)"></span> 默认文字色</button>
+                </div>
+              </div>
+              <button id="edit-clear-format" class="bar-btn" title="清除格式">⌫ 清除</button>
+            </div>
+            <div class="bar-divider"></div>
+            <div class="tool-group">
+              <button id="edit-save" class="bar-btn btn-save" title="保存修改 (Ctrl+S)">💾 保存</button>
+              <span id="edit-status" class="edit-status">未修改</span>
+            </div>
+            <div class="bar-spacer"></div>
+            <button id="edit-close" class="bar-btn bar-close" title="退出编辑模式">✕ 退出</button>
+          </div>
+
           <div id="empty-state" class="empty-state">
             <div class="empty-icon">📖</div>
             <h2>markdown阅读器</h2>

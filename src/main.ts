@@ -7,6 +7,8 @@ import * as theme from './theme';
 import { renderTree, renderTabs, renderTreeHeader } from './tree';
 import { renderPreview, restoreScroll, attachScrollListener } from './preview';
 import { setupSearch } from './search';
+import { inkManager } from './ink';
+import { directEditor } from './editor';
 
 // ---------------- DOM 缓存 ----------------
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -28,6 +30,16 @@ const themePop = $<HTMLElement>('theme-pop');
 const recentHint = $<HTMLElement>('recent-hint');
 const btnBack = $<HTMLElement>('btn-back');
 const readerTitle = $<HTMLElement>('reader-title');
+const btnInk = $<HTMLButtonElement>('btn-ink');
+const btnEdit = $<HTMLButtonElement>('btn-edit');
+const inkBar = $<HTMLElement>('ink-bar');
+const inkBadge = $<HTMLButtonElement>('ink-badge');
+const inkBadgeIcon = $<HTMLElement>('ink-badge-icon');
+const inkBadgeDot = $<HTMLElement>('ink-badge-dot');
+const editBar = $<HTMLElement>('edit-bar');
+const editStatus = $<HTMLElement>('edit-status');
+
+const recentlySaved = new Map<string, number>();
 
 let safPollTimer: number | undefined;
 let lastSafSignature = '';
@@ -291,9 +303,20 @@ async function paintPreview(tab: Tab): Promise<void> {
     onOpenFile: (p, frag) => void openTab(p, frag),
   });
   restoreScroll(article, tab.ratio);
+
+  // 挂载手写笔画布与预览直接编辑器
+  const c = contentEl();
+  inkManager.mount(c, tab.path, article, previewWrap);
+  directEditor.mount(c, tab.path);
 }
 
 function activateTab(path: string): void {
+  if (directEditor.state.dirty && directEditor.state.activePath && directEditor.state.activePath !== path) {
+    if (!window.confirm('当前文档有未保存的修改，切换标签将丢失修改，确定切换吗？')) {
+      return;
+    }
+    directEditor.state.dirty = false;
+  }
   if (state.activePath === path) {
     // 手机模式：列表页点击「当前活动文档」→ 重新进入阅读视图
     showReader();
@@ -331,6 +354,12 @@ function scrollToFragment(path: string, fragment: string): void {
 }
 
 function closeTab(path: string): void {
+  if (directEditor.state.dirty && directEditor.state.activePath === path) {
+    if (!window.confirm('当前文档有未保存的修改，确定关闭并放弃修改吗？')) {
+      return;
+    }
+    directEditor.state.dirty = false;
+  }
   const idx = state.tabs.findIndex((t) => t.path === path);
   if (idx < 0) return;
   state.tabs.splice(idx, 1);
@@ -348,6 +377,15 @@ function closeTab(path: string): void {
     if (state.root && state.tree) {
       emptyState.hidden = false;
     }
+    // 关闭所有活跃控制条
+    if (inkManager.state.enabled) inkManager.toggle(false);
+    if (directEditor.state.enabled) directEditor.toggle(false);
+    btnInk.classList.remove('active');
+    btnEdit.classList.remove('active');
+    inkBar.hidden = true;
+    inkBadge.hidden = true;
+    editBar.hidden = true;
+
     // 手机模式：最后一个标签关闭后回到列表视图
     if (isPhone && view === 'reader') showList();
   }
@@ -479,6 +517,10 @@ async function applyFileChanged(paths: string[]): Promise<void> {
   const changed = new Set(paths);
   for (const tab of state.tabs) {
     if (!changed.has(tab.path)) continue;
+    const lastSaved = recentlySaved.get(tab.path);
+    if (lastSaved && Date.now() - lastSaved < 3000) {
+      continue; // 刚由编辑器自身保存，跳过外部重新渲染
+    }
     try {
       const r = await api.renderMd(tab.path, dark);
       const fresh = state.tabs.find((t) => t.path === tab.path);
@@ -679,6 +721,280 @@ function treeSignature(tree: Tree): string {
   return `${tree.path}|${tree.mdCount}|` + walk(tree.children);
 }
 
+// ---------------- 手写笔批注与直接编辑控制 ----------------
+function setupInkAndEditorControls(): void {
+  directEditor.init({
+    onDirtyChange: (dirty) => {
+      editStatus.textContent = dirty ? '● 已修改未保存' : '已保存';
+      editStatus.classList.toggle('dirty', dirty);
+    },
+    onSaved: (path, markdown) => {
+      recentlySaved.set(path, Date.now());
+      const tab = state.tabs.find((t) => t.path === path);
+      if (tab) {
+        tab.words = markdown.replace(/\s+/g, '').length;
+        updateStatus();
+      }
+    },
+    showToast: (msg) => toast(msg),
+  });
+
+  const syncInkBadge = (): void => {
+    if (inkBadgeDot) inkBadgeDot.style.background = inkManager.state.color;
+    if (inkBadgeIcon) {
+      if (inkManager.state.tool === 'pen') inkBadgeIcon.textContent = '🖊️';
+      else if (inkManager.state.tool === 'highlighter') inkBadgeIcon.textContent = '🖍️';
+      else if (inkManager.state.tool === 'eraser') inkBadgeIcon.textContent = '🧹';
+    }
+  };
+
+  const showInkBar = (): void => {
+    inkBar.hidden = false;
+    inkBadge.hidden = true;
+  };
+
+  const hideInkBar = (collapseToBadge = false): void => {
+    if (collapseToBadge && inkManager.state.enabled) {
+      inkBar.hidden = true;
+      inkBadge.hidden = false;
+      syncInkBadge();
+      if (inkBar.style.left) {
+        inkBadge.style.left = inkBar.style.left;
+        inkBadge.style.right = 'auto';
+      }
+      if (inkBar.style.top) {
+        inkBadge.style.top = inkBar.style.top;
+      }
+    } else {
+      inkBar.hidden = true;
+      inkBadge.hidden = true;
+    }
+  };
+
+  btnInk.addEventListener('click', () => {
+    if (!state.activePath) {
+      toast('请先打开一篇文档');
+      return;
+    }
+    if (directEditor.state.enabled) {
+      const ok = directEditor.toggle(false);
+      if (!ok) return;
+      btnEdit.classList.remove('active');
+      editBar.hidden = true;
+    }
+
+    const enabled = inkManager.toggle();
+    btnInk.classList.toggle('active', enabled);
+    if (enabled) {
+      showInkBar();
+      toast('手写批注已开启：悬浮胶囊工具栏，支持自由拖动与折叠');
+    } else {
+      hideInkBar(false);
+    }
+  });
+
+  btnEdit.addEventListener('click', () => {
+    if (!state.activePath) {
+      toast('请先打开一篇文档');
+      return;
+    }
+    if (inkManager.state.enabled) {
+      inkManager.toggle(false);
+      btnInk.classList.remove('active');
+      hideInkBar(false);
+    }
+
+    const enabled = directEditor.toggle();
+    btnEdit.classList.toggle('active', enabled);
+    editBar.hidden = !enabled;
+    if (enabled) {
+      toast('预览编辑已开启：直接点击文字即可修改输入，Ctrl+S 保存');
+    }
+  });
+
+  const btnPen = $<HTMLButtonElement>('ink-tool-pen');
+  const btnHighlighter = $<HTMLButtonElement>('ink-tool-highlighter');
+  const btnEraser = $<HTMLButtonElement>('ink-tool-eraser');
+
+  const updateInkToolButtons = (): void => {
+    btnPen.classList.toggle('active', inkManager.state.tool === 'pen');
+    btnHighlighter.classList.toggle('active', inkManager.state.tool === 'highlighter');
+    btnEraser.classList.toggle('active', inkManager.state.tool === 'eraser');
+  };
+
+  btnPen.addEventListener('click', () => {
+    inkManager.setTool('pen');
+    updateInkToolButtons();
+    syncInkBadge();
+  });
+  btnHighlighter.addEventListener('click', () => {
+    inkManager.setTool('highlighter');
+    updateInkToolButtons();
+    syncInkBadge();
+  });
+  btnEraser.addEventListener('click', () => {
+    inkManager.setTool('eraser');
+    updateInkToolButtons();
+    syncInkBadge();
+  });
+
+  inkBar.querySelectorAll<HTMLElement>('.color-dot').forEach((dot) => {
+    dot.addEventListener('click', () => {
+      const color = dot.dataset.color || '#e53935';
+      inkManager.setColor(color);
+      inkBar.querySelectorAll('.color-dot').forEach((d) => d.classList.remove('active'));
+      dot.classList.add('active');
+      updateInkToolButtons();
+      syncInkBadge();
+    });
+  });
+
+  $<HTMLSelectElement>('ink-size').addEventListener('change', (e) => {
+    const size = parseInt((e.target as HTMLSelectElement).value, 10) || 3;
+    inkManager.setSize(size);
+  });
+
+  $<HTMLElement>('ink-undo').addEventListener('click', () => inkManager.undo());
+  $<HTMLElement>('ink-redo').addEventListener('click', () => inkManager.redo());
+  $<HTMLElement>('ink-clear').addEventListener('click', () => {
+    if (window.confirm('确定要清除当前文档的所有圈画批注吗？')) {
+      inkManager.clearAll();
+    }
+  });
+
+  const touchBtn = $<HTMLButtonElement>('ink-touch');
+  touchBtn.addEventListener('click', () => {
+    const next = !inkManager.state.allowTouchDraw;
+    inkManager.setAllowTouchDraw(next);
+    touchBtn.classList.toggle('active', next);
+    touchBtn.textContent = next ? '👆 手指: 可画' : '👆 仅笔';
+    toast(next ? '已开启手指圈画（手指与手写笔均可绘制）' : '已切换为仅手写笔圈画（手指仅用于滚动浏览，防误触）');
+  });
+
+  // 胶囊最小化为悬浮徽标
+  $<HTMLElement>('ink-min').addEventListener('click', () => {
+    hideInkBar(true);
+    toast('手写工具栏已折叠为悬浮图标，点击图标即可恢复');
+  });
+
+  // 退出手写批注
+  $<HTMLElement>('ink-close').addEventListener('click', () => {
+    inkManager.toggle(false);
+    btnInk.classList.remove('active');
+    hideInkBar(false);
+  });
+
+  // 悬浮工具栏与徽标的自由拖拽逻辑（带视口边界自动防出界限制）
+  const setupDraggable = (handle: HTMLElement, target: HTMLElement): (() => boolean) => {
+    let startX = 0;
+    let startY = 0;
+    let startLeft = 0;
+    let startTop = 0;
+    let isDragging = false;
+    let moved = false;
+
+    handle.addEventListener('pointerdown', (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      isDragging = true;
+      moved = false;
+      startX = e.clientX;
+      startY = e.clientY;
+
+      const rect = target.getBoundingClientRect();
+      const parentRect = previewWrap.getBoundingClientRect();
+      startLeft = rect.left - parentRect.left;
+      startTop = rect.top - parentRect.top;
+
+      target.style.left = `${startLeft}px`;
+      target.style.top = `${startTop}px`;
+      target.style.right = 'auto';
+
+      handle.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+    });
+
+    handle.addEventListener('pointermove', (e: PointerEvent) => {
+      if (!isDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        moved = true;
+      }
+
+      const parentRect = previewWrap.getBoundingClientRect();
+      const maxLeft = Math.max(0, parentRect.width - target.offsetWidth);
+      const maxTop = Math.max(0, parentRect.height - target.offsetHeight);
+
+      const nextLeft = Math.min(Math.max(0, startLeft + dx), maxLeft);
+      const nextTop = Math.min(Math.max(0, startTop + dy), maxTop);
+
+      target.style.left = `${nextLeft}px`;
+      target.style.top = `${nextTop}px`;
+    });
+
+    const endDrag = (e: PointerEvent) => {
+      if (!isDragging) return;
+      isDragging = false;
+      try {
+        handle.releasePointerCapture(e.pointerId);
+      } catch {}
+    };
+
+    handle.addEventListener('pointerup', endDrag);
+    handle.addEventListener('pointercancel', endDrag);
+
+    return () => moved;
+  };
+
+  const inkDrag = $<HTMLElement>('ink-drag');
+  if (inkDrag) {
+    setupDraggable(inkDrag, inkBar);
+  }
+
+  const isBadgeMoved = setupDraggable(inkBadge, inkBadge);
+  inkBadge.addEventListener('click', (e) => {
+    if (isBadgeMoved()) {
+      e.stopPropagation();
+      return;
+    }
+    showInkBar();
+  });
+
+  $<HTMLElement>('edit-bold').addEventListener('click', () => directEditor.toggleBold());
+
+  const editColorBtn = $<HTMLElement>('edit-color-btn');
+  const editColorPop = $<HTMLElement>('edit-color-pop');
+  editColorBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    editColorPop.hidden = !editColorPop.hidden;
+  });
+
+  editColorPop.querySelectorAll<HTMLButtonElement>('button[data-edit-color]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const color = btn.dataset.editColor;
+      if (color) {
+        if (color === 'inherit') {
+          directEditor.removeFormat();
+        } else {
+          directEditor.applyColor(color);
+        }
+      }
+      editColorPop.hidden = true;
+    });
+  });
+
+  $<HTMLElement>('edit-clear-format').addEventListener('click', () => directEditor.removeFormat());
+  $<HTMLElement>('edit-save').addEventListener('click', () => void directEditor.save());
+  $<HTMLElement>('edit-close').addEventListener('click', () => {
+    const ok = directEditor.toggle(false);
+    if (ok) {
+      btnEdit.classList.remove('active');
+      editBar.hidden = true;
+    }
+  });
+}
+
 async function boot(): Promise<void> {
   await session.loadSession();
   theme.apply();
@@ -689,6 +1005,7 @@ async function boot(): Promise<void> {
   setupPhoneMode();
   setupSearch(searchInput, searchClear, resultsPanel, treePanel, (p) => void openTab(p));
   renderRecentHint();
+  setupInkAndEditorControls();
 
   $<HTMLElement>('btn-open').addEventListener('click', () => {
     void (async () => {
@@ -730,7 +1047,13 @@ async function boot(): Promise<void> {
     },
   );
 
-  window.addEventListener('beforeunload', () => void session.flush());
+  window.addEventListener('beforeunload', (e) => {
+    void session.flush();
+    if (directEditor.state.dirty) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
 
   // 恢复上次会话
   const s = session.getSession();

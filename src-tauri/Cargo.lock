@@ -2142,7 +2142,7 @@ dependencies = [
 
 [[package]]
 name = "mdreader"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "mdreader-core",
@@ -2158,7 +2158,7 @@ dependencies = [
 
 [[package]]
 name = "mdreader-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ignore",
  "percent-encoding",

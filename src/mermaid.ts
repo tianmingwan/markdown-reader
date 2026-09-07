@@ -120,9 +120,10 @@ function rekeySvg(svg: string, oldId: string, newId: string): string {
  * （缓存复用路径：保证同一文档里重复图表不产生 id 冲突）；
  * rekey=false 时保留原始 id（首次渲染路径：让 flowchart 的 click 回调能按 id 命中）。
  */
-function applyCached(node: HTMLElement, entry: CachedDiagram, rekey: boolean): void {
+function applyCached(node: HTMLElement, entry: CachedDiagram, rekey: boolean, rawCode?: string): void {
   const div = document.createElement('div');
   div.className = 'mermaid';
+  if (rawCode) div.dataset.raw = rawCode;
   div.innerHTML = rekey ? rekeySvg(entry.svg, entry.renderId, nextId()) : entry.svg;
   entry.bindFunctions?.(div); // tooltip 等按 class 选择器绑定，与 id 重编号无关
   node.replaceWith(div);
@@ -179,7 +180,7 @@ export async function renderMermaidIn(container: HTMLElement, theme: MermaidThem
     const key = cacheKey(code, theme);
     const hit = cache.get(key);
     if (hit) {
-      applyCached(node, hit, true); // 复用缓存：重编号，避免同文档重复图表 id 冲突
+      applyCached(node, hit, true, code); // 复用缓存：重编号，避免同文档重复图表 id 冲突
       continue;
     }
 
@@ -188,7 +189,7 @@ export async function renderMermaidIn(container: HTMLElement, theme: MermaidThem
       const { svg, bindFunctions } = await mermaid.render(renderId, code, node);
       const entry: CachedDiagram = { svg, renderId, bindFunctions };
       setCached(key, entry);
-      applyCached(node, entry, false); // 首次渲染：保留原始 id，click 回调可命中
+      applyCached(node, entry, false, code); // 首次渲染：保留原始 id，click 回调可命中
     } catch (e) {
       console.warn('[mermaid] 图表渲染失败', e);
       replaceError(node, code, e instanceof Error ? e.message : String(e));

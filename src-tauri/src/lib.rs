@@ -132,6 +132,32 @@ fn render_md(_app: AppHandle, path: String, dark: bool) -> Result<md::RenderedMd
     }
 }
 
+/// 保存 md 文本（桌面直接写文件；安卓走 SAF）
+#[tauri::command]
+fn save_file(_app: AppHandle, path: String, content: String) -> Result<(), String> {
+    if path.starts_with("content://") {
+        #[cfg(mobile)]
+        {
+            let app = _app;
+            let state = app.state::<saf::SafPlugin<tauri::Wry>>();
+            return state.write_text(&path, &content);
+        }
+        #[cfg(not(mobile))]
+        {
+            return Err("非法路径".into());
+        }
+    }
+    #[cfg(not(mobile))]
+    {
+        saf::write_text(&path, &content)
+    }
+    #[cfg(mobile)]
+    {
+        let _ = content;
+        Err("非法路径".into())
+    }
+}
+
 /// 全文搜索（桌面：文件系统遍历，后台线程执行）
 #[tauri::command]
 async fn search_files(root: String, query: String) -> Vec<search::SearchHit> {
@@ -306,7 +332,8 @@ pub fn run() {
             save_session,
             load_session,
             open_external,
-            resolve_rel
+            resolve_rel,
+            save_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

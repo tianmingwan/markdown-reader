@@ -39,6 +39,12 @@ pub fn read_bytes(path: &str) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| e.to_string())
 }
 
+/// 写入 md 文本：桌面直接写文件；安卓走 SAF
+#[cfg(not(mobile))]
+pub fn write_text(path: &str, content: &str) -> Result<(), String> {
+    std::fs::write(path, content).map_err(|e| e.to_string())
+}
+
 /// 列出目录树：桌面直接扫描；安卓走 SAF 递归查询
 #[cfg(not(mobile))]
 pub fn list_tree(loc: &str) -> Result<crate::tree::Tree, String> {
