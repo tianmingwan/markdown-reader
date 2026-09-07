@@ -884,14 +884,19 @@ function setupInkAndEditorControls(): void {
     hideInkBar(false);
   });
 
-  // 悬浮工具栏与徽标的自由拖拽逻辑（带视口边界自动防出界限制）
+  // 悬浮工具栏与徽标的自由拖拽逻辑（纯 GPU 合成加速，拖拽中 0 重排，带边界限制）
   const setupDraggable = (handle: HTMLElement, target: HTMLElement): (() => boolean) => {
     let startX = 0;
     let startY = 0;
     let startLeft = 0;
     let startTop = 0;
+    let maxLeft = 0;
+    let maxTop = 0;
+    let currentTranslateX = 0;
+    let currentTranslateY = 0;
     let isDragging = false;
     let moved = false;
+    let rafId = 0;
 
     handle.addEventListener('pointerdown', (e: PointerEvent) => {
       if (e.button !== 0) return;
@@ -899,42 +904,73 @@ function setupInkAndEditorControls(): void {
       moved = false;
       startX = e.clientX;
       startY = e.clientY;
+      currentTranslateX = 0;
+      currentTranslateY = 0;
 
+      // 一次性测量几何尺寸，拖动过程中绝不再次触发 getBoundingClientRect / offsetWidth
       const rect = target.getBoundingClientRect();
       const parentRect = previewWrap.getBoundingClientRect();
       startLeft = rect.left - parentRect.left;
       startTop = rect.top - parentRect.top;
+      maxLeft = Math.max(0, parentRect.width - rect.width);
+      maxTop = Math.max(0, parentRect.height - rect.height);
 
+      // 固定起始物理定位，重置 transform 并加上硬件加速类
       target.style.left = `${startLeft}px`;
       target.style.top = `${startTop}px`;
       target.style.right = 'auto';
+      target.style.transform = 'translate3d(0, 0, 0)';
+      target.classList.add('is-dragging');
 
-      handle.setPointerCapture(e.pointerId);
+      try {
+        handle.setPointerCapture(e.pointerId);
+      } catch {}
       e.stopPropagation();
     });
 
     handle.addEventListener('pointermove', (e: PointerEvent) => {
       if (!isDragging) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+      const rawDx = e.clientX - startX;
+      const rawDy = e.clientY - startY;
+      if (Math.abs(rawDx) > 4 || Math.abs(rawDy) > 4) {
         moved = true;
       }
 
-      const parentRect = previewWrap.getBoundingClientRect();
-      const maxLeft = Math.max(0, parentRect.width - target.offsetWidth);
-      const maxTop = Math.max(0, parentRect.height - target.offsetHeight);
+      // 计算并约束相对位移范围（纯数学运算，零 DOM 重排）
+      const clampedX = Math.min(Math.max(0, startLeft + rawDx), maxLeft) - startLeft;
+      const clampedY = Math.min(Math.max(0, startTop + rawDy), maxTop) - startTop;
 
-      const nextLeft = Math.min(Math.max(0, startLeft + dx), maxLeft);
-      const nextTop = Math.min(Math.max(0, startTop + dy), maxTop);
+      currentTranslateX = clampedX;
+      currentTranslateY = clampedY;
 
-      target.style.left = `${nextLeft}px`;
-      target.style.top = `${nextTop}px`;
+      // requestAnimationFrame 节流批处理，纯 GPU 合成层位移
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          if (isDragging) {
+            target.style.transform = `translate3d(${currentTranslateX}px, ${currentTranslateY}px, 0)`;
+          }
+        });
+      }
     });
 
     const endDrag = (e: PointerEvent) => {
       if (!isDragging) return;
       isDragging = false;
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+
+      target.classList.remove('is-dragging');
+
+      // 拖拽结束时将最终偏移固化到 left / top，并清空 transform
+      const finalLeft = Math.round(startLeft + currentTranslateX);
+      const finalTop = Math.round(startTop + currentTranslateY);
+      target.style.transform = '';
+      target.style.left = `${finalLeft}px`;
+      target.style.top = `${finalTop}px`;
+
       try {
         handle.releasePointerCapture(e.pointerId);
       } catch {}

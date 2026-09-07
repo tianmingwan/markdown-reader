@@ -81,22 +81,17 @@ export class InkManager {
   private activePointerId: number | null = null;
   private currentPoints: InkPoint[] = [];
   private lastCanvasPoint: { x: number; y: number } | null = null;
-  private containerRect: DOMRect | null = null;
-  private canvasRect: DOMRect | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private onChangeCallback: (() => void) | null = null;
   private scrollRafId: number = 0;
 
-  // 手指高精度惯性物理滚动状态
-  private touchScroll = {
-    active: false,
-    pointerId: -1,
-    startY: 0,
-    lastY: 0,
-    lastTime: 0,
-    velocity: 0,
-    rafId: 0,
-  };
+  // 物理几何基准缓存（仅在 mount 和 resize 时更新，彻底避免在滚动与拖拽中发生任何强制同步回流）
+  private baseContainerLeft = 0;
+  private baseContainerTop = 0;
+  private canvasLeft = 0;
+  private canvasTop = 0;
+  private viewportWidth = 0;
+  private viewportHeight = 0;
 
   constructor() {
     window.addEventListener('resize', () => {
@@ -186,19 +181,25 @@ export class InkManager {
     });
   };
 
-  public updateRects(): void {
-    if (this.container) {
-      this.containerRect = this.container.getBoundingClientRect();
-    }
-    if (this.canvas) {
-      this.canvasRect = this.canvas.getBoundingClientRect();
-    }
+  /** 更新基准物理尺寸与偏移量（仅在 mount、resize 或落笔瞬间执行，避免滚动中回流） */
+  public updateBaseMetrics(): void {
+    if (!this.container || !this.scrollContainer || !this.canvas) return;
+    const contRect = this.container.getBoundingClientRect();
+    const cvsRect = this.canvas.getBoundingClientRect();
+    const scrollY = this.scrollContainer.scrollTop;
+    const scrollX = this.scrollContainer.scrollLeft;
+
+    this.baseContainerTop = contRect.top + scrollY;
+    this.baseContainerLeft = contRect.left + scrollX;
+    this.canvasLeft = cvsRect.left;
+    this.canvasTop = cvsRect.top;
+    this.viewportWidth = cvsRect.width;
+    this.viewportHeight = cvsRect.height;
   }
 
   /** 同步视口画布尺寸（严格锁定可视范围，DPR 最大 2.0，纯 GPU 硬件加速） */
   public syncCanvasSize(): void {
     if (!this.canvas || !this.wrapContainer || !this.ctx) return;
-    this.updateRects();
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = this.wrapContainer.clientWidth;
     const h = this.wrapContainer.clientHeight;
@@ -214,6 +215,7 @@ export class InkManager {
       this.canvas.style.height = `${h}px`;
     }
 
+    this.updateBaseMetrics();
     this.redraw();
   }
 
@@ -221,6 +223,10 @@ export class InkManager {
   public toggle(enabled?: boolean): boolean {
     this.state.enabled = enabled !== undefined ? enabled : !this.state.enabled;
     this.updatePointerStyle();
+    if (this.state.enabled) {
+      this.updateBaseMetrics();
+      this.redraw();
+    }
     this.notify();
     return this.state.enabled;
   }
@@ -250,186 +256,119 @@ export class InkManager {
   }
 
   private updatePointerStyle(): void {
-    if (!this.canvas) return;
+    if (!this.canvas || !this.scrollContainer) return;
+    // 画布始终保持 pointer-events: none，完全作为独立的纯渲染图层，不阻挡底层原生触控
+    this.canvas.style.pointerEvents = 'none';
+
     if (!this.state.enabled) {
-      this.canvas.style.pointerEvents = 'none';
-      this.canvas.style.cursor = 'default';
+      this.scrollContainer.style.cursor = 'default';
+      this.scrollContainer.classList.remove('ink-active');
       return;
     }
-    this.canvas.style.pointerEvents = 'auto';
+
+    this.scrollContainer.classList.add('ink-active');
     if (this.state.tool === 'eraser') {
-      this.canvas.style.cursor = 'cell';
+      this.scrollContainer.style.cursor = 'cell';
     } else {
-      this.canvas.style.cursor = 'crosshair';
+      this.scrollContainer.style.cursor = 'crosshair';
     }
+  }
+
+  public unbindEvents(): void {
+    if (!this.scrollContainer) return;
+    const sc = this.scrollContainer;
+    sc.removeEventListener('pointerdown', this.handlePointerDown, { capture: true });
+    sc.removeEventListener('pointermove', this.handlePointerMove);
+    sc.removeEventListener('pointerup', this.handlePointerEnd);
+    sc.removeEventListener('pointercancel', this.handlePointerEnd);
   }
 
   private bindEvents(): void {
-    if (!this.canvas) return;
-    const cvs = this.canvas;
+    if (!this.scrollContainer) return;
+    const sc = this.scrollContainer;
+    this.unbindEvents();
 
-    cvs.onpointerdown = (e: PointerEvent) => {
-      if (!this.state.enabled) return;
+    sc.addEventListener('pointerdown', this.handlePointerDown, { capture: true, passive: false });
+    sc.addEventListener('pointermove', this.handlePointerMove, { passive: false });
+    sc.addEventListener('pointerup', this.handlePointerEnd);
+    sc.addEventListener('pointercancel', this.handlePointerEnd);
+  }
 
-      // 1. 若当前手写笔正处于书写状态，彻底拒斥任何手指/手掌接触（防误触）
-      if (this.isDrawingWithPen) {
-        return;
-      }
+  private handlePointerDown = (e: PointerEvent): void => {
+    if (!this.state.enabled) return;
 
-      // 2. 手写笔落笔 (pointerType === 'pen')：
-      if (e.pointerType === 'pen') {
-        e.preventDefault();
-        // 立即打断可能残留的手指惯性滑行
-        cancelAnimationFrame(this.touchScroll.rafId);
-        this.touchScroll.active = false;
-
-        this.isDrawingWithPen = true;
-        this.isDrawing = true;
-        this.activePointerId = e.pointerId;
-        try {
-          cvs.setPointerCapture(e.pointerId);
-        } catch {}
-
-        this.updateRects();
-        this.onPointerStart(e);
-        return;
-      }
-
-      // 3. 手指触控 (pointerType === 'touch')：
+    // 1. 若当前手写笔正处于落笔书写状态，手掌接触屏幕时彻底阻断（硬件级防误触）
+    if (this.isDrawingWithPen) {
       if (e.pointerType === 'touch') {
-        if (!this.state.allowTouchDraw) {
-          // 仅手写笔模式：手指转入丝滑惯性物理滚动
-          e.preventDefault();
-          this.handleTouchScrollDown(e);
-          return;
-        } else {
-          // 手指绘制模式
-          if (this.activePointerId !== null) return;
-          e.preventDefault();
-          this.isDrawing = true;
-          this.activePointerId = e.pointerId;
-          try {
-            cvs.setPointerCapture(e.pointerId);
-          } catch {}
-          this.updateRects();
-          this.onPointerStart(e);
-          return;
-        }
-      }
-
-      // 4. 鼠标左键
-      if (e.pointerType === 'mouse') {
-        if (e.button !== 0 || this.activePointerId !== null) return;
         e.preventDefault();
-        this.isDrawing = true;
-        this.activePointerId = e.pointerId;
-        try {
-          cvs.setPointerCapture(e.pointerId);
-        } catch {}
-        this.updateRects();
-        this.onPointerStart(e);
+        e.stopPropagation();
+        return;
       }
-    };
+    }
 
-    cvs.onpointermove = (e: PointerEvent) => {
-      if (this.isDrawing && e.pointerId === this.activePointerId) {
-        e.preventDefault();
-        this.onPointerMove(e);
-        return;
-      }
-      if (this.touchScroll.active && e.pointerId === this.touchScroll.pointerId) {
-        e.preventDefault();
-        this.handleTouchScrollMove(e);
-        return;
-      }
-    };
+    // 2. 检查是否应该由手写层捕获事件
+    const isPen = e.pointerType === 'pen';
+    const isTouchDraw = e.pointerType === 'touch' && this.state.allowTouchDraw;
+    const isMouseDraw = e.pointerType === 'mouse' && e.button === 0;
 
-    const handlePointerEnd = (e: PointerEvent) => {
-      if (this.isDrawing && e.pointerId === this.activePointerId) {
-        try {
-          cvs.releasePointerCapture(e.pointerId);
-        } catch {}
-        this.isDrawingWithPen = false;
-        this.activePointerId = null;
-        this.onPointerEnd();
-        return;
-      }
-      if (this.touchScroll.active && e.pointerId === this.touchScroll.pointerId) {
-        this.handleTouchScrollEnd(e);
-        return;
-      }
-    };
+    if (isPen || isTouchDraw || isMouseDraw) {
+      // 专职绘制：阻止默认滚动与文本选中
+      e.preventDefault();
+      e.stopPropagation();
 
-    cvs.onpointerup = handlePointerEnd;
-    cvs.onpointercancel = handlePointerEnd;
+      this.isDrawing = true;
+      this.isDrawingWithPen = isPen;
+      this.activePointerId = e.pointerId;
+
+      // 仅在落笔瞬间刷新一次物理基准（以防动态布局微调），滚动中绝不再调用
+      this.updateBaseMetrics();
+
+      try {
+        this.scrollContainer?.setPointerCapture(e.pointerId);
+      } catch {}
+
+      this.onPointerStart(e);
+      return;
+    }
+
+    // 3. 普通手指触控（!allowTouchDraw）：
+    // 坚决不调用 preventDefault()，让事件直接穿透至原生硬件滚动容器！
+    // 依靠安卓系统/浏览器的 GPU Compositor 线程实现 120Hz 纯硬件平滑滚动！
   };
 
-  /** 手指物理惯性滚动 - 下按 */
-  private handleTouchScrollDown(e: PointerEvent): void {
-    cancelAnimationFrame(this.touchScroll.rafId);
-    this.touchScroll.active = true;
-    this.touchScroll.pointerId = e.pointerId;
-    this.touchScroll.startY = e.clientY;
-    this.touchScroll.lastY = e.clientY;
-    this.touchScroll.lastTime = performance.now();
-    this.touchScroll.velocity = 0;
-  }
-
-  /** 手指物理惯性滚动 - 滑动 */
-  private handleTouchScrollMove(e: PointerEvent): void {
-    if (!this.scrollContainer) return;
-    const now = performance.now();
-    const dy = e.clientY - this.touchScroll.lastY;
-    const dt = now - this.touchScroll.lastTime;
-
-    this.scrollContainer.scrollTop -= dy;
-
-    if (dt > 0) {
-      const v = dy / dt;
-      this.touchScroll.velocity = 0.6 * v + 0.4 * this.touchScroll.velocity;
+  private handlePointerMove = (e: PointerEvent): void => {
+    if (this.isDrawing && e.pointerId === this.activePointerId) {
+      e.preventDefault();
+      this.onPointerMove(e);
     }
-    this.touchScroll.lastY = e.clientY;
-    this.touchScroll.lastTime = now;
-  }
+  };
 
-  /** 手指物理惯性滚动 - 抬手自然减速滑行 */
-  private handleTouchScrollEnd(e: PointerEvent): void {
-    this.touchScroll.active = false;
-    this.touchScroll.pointerId = -1;
+  private handlePointerEnd = (e: PointerEvent): void => {
+    if (this.isDrawing && e.pointerId === this.activePointerId) {
+      try {
+        this.scrollContainer?.releasePointerCapture(e.pointerId);
+      } catch {}
+      this.isDrawingWithPen = false;
+      this.activePointerId = null;
+      this.onPointerEnd();
+    }
+  };
 
-    if (!this.scrollContainer) return;
-
-    let v = this.touchScroll.velocity * 16;
-    if (Math.abs(v) < 0.5) return;
-
-    const glide = () => {
-      if (Math.abs(v) < 0.2 || this.isDrawingWithPen || this.touchScroll.active) return;
-      if (this.scrollContainer) {
-        this.scrollContainer.scrollTop -= v;
-      }
-      v *= 0.94; // 经典指数动量衰减
-      this.touchScroll.rafId = requestAnimationFrame(glide);
-    };
-    this.touchScroll.rafId = requestAnimationFrame(glide);
-  }
-
-  /** 获取相对于文档正文 (#preview-content) 的全局坐标 */
+  /** 获取相对于文档正文 (#preview-content) 的全局坐标 (0 DOM 回流) */
   private getDocPoint(e: PointerEvent): InkPoint {
-    const left = this.containerRect ? this.containerRect.left : 0;
-    const top = this.containerRect ? this.containerRect.top : 0;
-    const x = e.clientX - left;
-    const y = e.clientY - top;
+    const scrollX = this.scrollContainer ? this.scrollContainer.scrollLeft : 0;
+    const scrollY = this.scrollContainer ? this.scrollContainer.scrollTop : 0;
+    const x = e.clientX - this.baseContainerLeft + scrollX;
+    const y = e.clientY - this.baseContainerTop + scrollY;
     const p = e.pressure > 0 ? e.pressure : 0.5;
     return { x, y, p };
   }
 
-  /** 获取相对于视口 Canvas 的实时坐标 */
+  /** 获取相对于视口 Canvas 的实时坐标 (0 DOM 回流) */
   private getCanvasPoint(e: PointerEvent): { x: number; y: number } {
-    const left = this.canvasRect ? this.canvasRect.left : 0;
-    const top = this.canvasRect ? this.canvasRect.top : 0;
     return {
-      x: e.clientX - left,
-      y: e.clientY - top,
+      x: e.clientX - this.canvasLeft,
+      y: e.clientY - this.canvasTop,
     };
   }
 
@@ -565,9 +504,9 @@ export class InkManager {
     }
   }
 
-  /** 重绘当前视口内的所有笔画（视锥剔除 Frustum Culling，毫秒级快速上屏） */
+  /** 重绘当前视口内的所有笔画（视锥剔除 Frustum Culling，毫秒级快速上屏，0 DOM 回流） */
   public redraw(): void {
-    if (!this.ctx || !this.canvas || !this.container) return;
+    if (!this.ctx || !this.canvas || !this.scrollContainer) return;
     const ctx = this.ctx;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
@@ -575,20 +514,22 @@ export class InkManager {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    this.updateRects();
-    if (!this.containerRect || !this.canvasRect) return;
-
-    const offsetX = this.containerRect.left - this.canvasRect.left;
-    const offsetY = this.containerRect.top - this.canvasRect.top;
+    const scrollX = this.scrollContainer.scrollLeft;
+    const scrollY = this.scrollContainer.scrollTop;
+    const offsetX = (this.baseContainerLeft - this.canvasLeft) - scrollX;
+    const offsetY = (this.baseContainerTop - this.canvasTop) - scrollY;
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.translate(offsetX, offsetY);
 
+    const vpW = this.viewportWidth || (this.canvas.width / dpr);
+    const vpH = this.viewportHeight || (this.canvas.height / dpr);
+
     // 视口在文档坐标系下的可见矩形范围（剔除不可见笔画）
     const visibleMinY = -offsetY;
-    const visibleMaxY = -offsetY + this.canvasRect.height;
+    const visibleMaxY = -offsetY + vpH;
     const visibleMinX = -offsetX;
-    const visibleMaxX = -offsetX + this.canvasRect.width;
+    const visibleMaxX = -offsetX + vpW;
 
     const highlighters = this.state.strokes.filter((s) => s.tool === 'highlighter');
     const pens = this.state.strokes.filter((s) => s.tool !== 'highlighter');
@@ -758,11 +699,11 @@ export class InkManager {
   }
 
   public destroy(): void {
-    cancelAnimationFrame(this.touchScroll.rafId);
     if (this.scrollRafId) {
       cancelAnimationFrame(this.scrollRafId);
       this.scrollRafId = 0;
     }
+    this.unbindEvents();
     if (this.scrollContainer) {
       this.scrollContainer.removeEventListener('scroll', this.handleScroll);
     }

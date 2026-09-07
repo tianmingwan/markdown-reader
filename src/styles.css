@@ -569,6 +569,9 @@ mark {
   scrollbar-width: thin;
   width: 100%;
   min-width: 0;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  will-change: scroll-position;
 }
 
 /* 内容区：居中限宽，字号由 --md-font-size 控制（A−/A+ 可调） */
@@ -914,6 +917,25 @@ body.dark .ink-capsule {
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 
+/* 拖拽期间禁用昂贵的实时高斯模糊，开启硬件合成图层，保障 120Hz 极速跟手 */
+.ink-capsule.is-dragging,
+.ink-badge.is-dragging {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  background: rgba(255, 255, 255, 0.98) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22), 0 4px 10px rgba(0, 0, 0, 0.1) !important;
+  transition: none !important;
+  cursor: grabbing !important;
+  will-change: transform;
+}
+[data-theme='dark'] .ink-capsule.is-dragging,
+body.dark .ink-capsule.is-dragging,
+[data-theme='dark'] .ink-badge.is-dragging,
+body.dark .ink-badge.is-dragging {
+  background: rgba(30, 32, 38, 0.98) !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6) !important;
+}
+
 .capsule-drag {
   display: flex;
   align-items: center;
@@ -1119,6 +1141,7 @@ body.dark .ink-badge {
   pointer-events: none;
   z-index: 20;
   touch-action: none !important;
+  will-change: transform;
 }
 
 /* 预览直接编辑样式 */
