@@ -89,7 +89,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -143,11 +143,16 @@ jobs:
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: npm run tauri android build -- --apk --debug
 
+      - name: prepare APK artifact
+        run: |
+          mkdir -p apk-output
+          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -type f -exec cp {} apk-output/ \;
+
       - name: upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: apk
-          path: src-tauri/gen/android/app/build/outputs/apk/debug/*.apk
+          path: apk-output/*.apk
           if-no-files-found: error
 
   release-android:
