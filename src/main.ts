@@ -100,6 +100,16 @@ function setupPhoneMode(): void {
       openPop.hidden = true;
       return 'list';
     }
+    // 如果正在编辑模式，按返回键先退出编辑模式
+    if (directEditor.state.enabled) {
+      closeEditor(true);
+      return 'list';
+    }
+    // 如果正在手写批注模式，按返回键先退出手写
+    if (inkManager.state.enabled) {
+      closeInk();
+      return 'list';
+    }
     if (isPhone && view === 'reader') {
       showList();
       return 'list';
@@ -308,6 +318,32 @@ async function paintPreview(tab: Tab): Promise<void> {
   const c = contentEl();
   inkManager.mount(c, tab.path, article, previewWrap);
   directEditor.mount(c, tab.path);
+}
+
+function closeEditor(restoreIfDirty = true): boolean {
+  if (!directEditor.state.enabled) return true;
+  const wasDirty = directEditor.state.dirty;
+  const closed = directEditor.close();
+  if (!closed) {
+    return false; // 用户在确认弹窗中取消了退出
+  }
+  btnEdit.classList.remove('active');
+  editBar.hidden = true;
+  if (restoreIfDirty && wasDirty && state.activePath) {
+    const tab = state.tabs.find((t) => t.path === state.activePath);
+    if (tab) {
+      void paintPreview(tab);
+    }
+  }
+  return true;
+}
+
+let hideInkBarFn: ((collapseToBadge?: boolean) => void) | null = null;
+function closeInk(): void {
+  if (!inkManager.state.enabled) return;
+  inkManager.toggle(false);
+  btnInk.classList.remove('active');
+  hideInkBarFn?.(false);
 }
 
 function activateTab(path: string): void {
@@ -734,9 +770,27 @@ function setupInkAndEditorControls(): void {
       if (tab) {
         tab.words = markdown.replace(/\s+/g, '').length;
         updateStatus();
+        // 重新在后台通过 Rust 渲染器生成最新的 HTML 缓存，保证切标签/刷新时不丢失
+        void (async () => {
+          try {
+            const r = await api.renderMd(path, theme.effective() === 'dark');
+            const fresh = state.tabs.find((t) => t.path === path);
+            if (fresh) {
+              fresh.html = r.html;
+              fresh.hasMath = r.hasMath;
+              fresh.hasMermaid = r.hasMermaid;
+              fresh.words = r.words;
+            }
+          } catch {
+            /* 忽略更新失败 */
+          }
+        })();
       }
     },
     showToast: (msg) => toast(msg),
+    onExit: () => {
+      closeEditor(true);
+    },
   });
 
   const syncInkBadge = (): void => {
@@ -770,6 +824,7 @@ function setupInkAndEditorControls(): void {
       inkBadge.hidden = true;
     }
   };
+  hideInkBarFn = hideInkBar;
 
   btnInk.addEventListener('click', () => {
     if (!state.activePath) {
@@ -777,10 +832,8 @@ function setupInkAndEditorControls(): void {
       return;
     }
     if (directEditor.state.enabled) {
-      const ok = directEditor.toggle(false);
-      if (!ok) return;
-      btnEdit.classList.remove('active');
-      editBar.hidden = true;
+      const closed = closeEditor(true);
+      if (!closed) return;
     }
 
     const enabled = inkManager.toggle();
@@ -798,13 +851,15 @@ function setupInkAndEditorControls(): void {
       toast('请先打开一篇文档');
       return;
     }
+    if (directEditor.state.enabled) {
+      closeEditor(true);
+      return;
+    }
     if (inkManager.state.enabled) {
-      inkManager.toggle(false);
-      btnInk.classList.remove('active');
-      hideInkBar(false);
+      closeInk();
     }
 
-    const enabled = directEditor.toggle();
+    const enabled = directEditor.toggle(true);
     btnEdit.classList.toggle('active', enabled);
     editBar.hidden = !enabled;
     if (enabled) {
@@ -1023,11 +1078,7 @@ function setupInkAndEditorControls(): void {
   $<HTMLElement>('edit-clear-format').addEventListener('click', () => directEditor.removeFormat());
   $<HTMLElement>('edit-save').addEventListener('click', () => void directEditor.save());
   $<HTMLElement>('edit-close').addEventListener('click', () => {
-    const ok = directEditor.toggle(false);
-    if (ok) {
-      btnEdit.classList.remove('active');
-      editBar.hidden = true;
-    }
+    closeEditor(true);
   });
 }
 

@@ -13,6 +13,7 @@ export interface EditorCallbacks {
   onDirtyChange: (dirty: boolean) => void;
   onSaved: (path: string, markdown: string) => void;
   showToast: (msg: string) => void;
+  onExit?: () => void;
 }
 
 export class DirectEditor {
@@ -41,6 +42,16 @@ export class DirectEditor {
     if (this.state.enabled) {
       this.applyEditableState();
     }
+  }
+
+  /**
+   * 关闭编辑模式，若有未保存修改会弹窗确认。
+   * @returns true 表示成功退出编辑模式；false 表示用户取消了退出
+   */
+  public close(): boolean {
+    if (!this.state.enabled) return true;
+    const stillEnabled = this.toggle(false);
+    return !stillEnabled;
   }
 
   /** 切换编辑模式开启/关闭 */
@@ -95,6 +106,9 @@ export class DirectEditor {
           } else if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
             e.preventDefault();
             this.toggleBold();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            this.callbacks?.onExit?.();
           }
         };
         window.addEventListener('keydown', this.keydownHandler);

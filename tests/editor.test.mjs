@@ -12,7 +12,7 @@ globalThis.document = window.document;
 globalThis.Node = window.Node;
 globalThis.HTMLElement = window.HTMLElement;
 
-const { serializeNode, cleanMarkdown } = await import('../src/editor.ts');
+const { DirectEditor, serializeNode, cleanMarkdown } = await import('../src/editor.ts');
 
 const tests = [];
 function test(name, fn) {
@@ -80,6 +80,26 @@ test('自动过滤手写画布 ink-canvas', () => {
   div.innerHTML = '<p>正常正文</p><canvas id="ink-canvas" class="ink-canvas"></canvas>';
   const md = serializeNode(div).trim();
   assert.equal(md, '正常正文');
+});
+
+test('DirectEditor close() 与 toggle() 状态正常闭合', () => {
+  const editor = new DirectEditor();
+  const div = document.createElement('div');
+  editor.mount(div, 'test.md');
+  assert.equal(editor.state.enabled, false);
+
+  // 开启
+  const turnedOn = editor.toggle(true);
+  assert.equal(turnedOn, true);
+  assert.equal(editor.state.enabled, true);
+
+  // 通过 close() 退出编辑模式
+  const closed = editor.close();
+  assert.equal(closed, true);
+  assert.equal(editor.state.enabled, false);
+
+  // 再次调用 close() 幂等返回 true
+  assert.equal(editor.close(), true);
 });
 
 // 运行测试
