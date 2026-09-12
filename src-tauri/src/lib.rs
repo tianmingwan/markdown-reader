@@ -60,7 +60,7 @@ fn open_root_internal(app: &AppHandle, root: session::RootRef) -> Result<OpenedR
 
 /// 弹出「打开文件夹」选择器（桌面：系统对话框；安卓：SAF 目录授权）
 #[tauri::command]
-fn open_folder_picker(app: AppHandle) -> Result<Option<OpenedRoot>, String> {
+async fn open_folder_picker(app: AppHandle) -> Result<Option<OpenedRoot>, String> {
     #[cfg(mobile)]
     {
         let state = app.state::<saf::SafPlugin<tauri::Wry>>();
@@ -71,10 +71,13 @@ fn open_folder_picker(app: AppHandle) -> Result<Option<OpenedRoot>, String> {
     #[cfg(not(mobile))]
     {
         use tauri_plugin_dialog::DialogExt;
-        let picked = app
-            .dialog()
-            .file()
-            .blocking_pick_folder()
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        app.dialog().file().pick_folder(move |picked| {
+            let _ = tx.send(picked);
+        });
+        let picked = rx
+            .await
+            .map_err(|e| e.to_string())?
             .and_then(|p| p.into_path().ok());
         let Some(path) = picked else {
             return Ok(None);
@@ -252,6 +255,7 @@ fn spawn_watcher(app: AppHandle, root_loc: &str) {
         return;
     }
     std::thread::spawn(move || {
+        let _debouncer = debouncer;
         while let Ok(result) = rx.recv() {
             match result {
                 Ok(events) => {

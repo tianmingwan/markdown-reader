@@ -21,7 +21,11 @@ serde_json = "1"
 notify-debouncer-mini = "0.6"
 base64 = "0.22"
 percent-encoding = "2"
+tokio = { version = "1", features = ["sync"] }
 mdreader-core = { path = "core" }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
 
 [profile.release]
 codegen-units = 1

@@ -6,8 +6,6 @@
 #
 # 2. rustc 对 cdylib 默认导出全部符号，超过 PE 导出序号上限(65535)报
 #    "export ordinal too large"；桌面端不需要导出，禁用即可。
-[build]
-target-dir = "C:/mdrtarget"
 
 [target.x86_64-pc-windows-gnu]
 rustflags = ["-C", "link-arg=-Wl,--exclude-all-symbols"]

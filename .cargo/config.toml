@@ -1,5 +1,2 @@
-[build]
-target-dir = "C:/mdrtarget"
-
 [target.x86_64-pc-windows-gnu]
 rustflags = ["-C", "link-arg=-Wl,--exclude-all-symbols"]
