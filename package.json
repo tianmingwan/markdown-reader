@@ -1,7 +1,7 @@
 {
   "name": "markdown-reader",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "打开即预览的 Markdown 阅读器：Rust + Tauri 2，支持 Windows 桌面 + 安卓手机/平板（KaTeX / Mermaid / 语法高亮 / 多标签 / 全文搜索）",
   "scripts": {
