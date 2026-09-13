@@ -133,7 +133,16 @@ jobs:
               if (!content.includes("activity-ktx")) {
                 content = content.replace("dependencies {", `dependencies {\n    implementation("androidx.activity:activity-ktx:1.10.1")\n    implementation("androidx.lifecycle:lifecycle-process:2.10.0")`);
               }
-              content = content.replace(/getByName\("release"\)\s*\{[\s\S]*?\}/, `getByName("release") {\n            isMinifyEnabled = false\n            signingConfig = signingConfigs.getByName("debug")\n        }`);
+              content += `
+android {
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+}
+`;
               fs.writeFileSync(file, content);
             }
           '
