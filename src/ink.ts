@@ -174,6 +174,8 @@ export class InkManager {
   }
 
   private handleScroll = (): void => {
+    // 若未开启手写批注且当前文档没有笔画，直接退出，不进 RAF，不重绘清屏
+    if (!this.state.enabled && this.state.strokes.length === 0) return;
     if (this.scrollRafId) return;
     this.scrollRafId = requestAnimationFrame(() => {
       this.scrollRafId = 0;

@@ -4,7 +4,7 @@ import { state } from './state';
 import type { OpenedRoot, RootRef, SortMode, Tab, Tree, TreeNode } from './types';
 import * as session from './session';
 import * as theme from './theme';
-import { renderTree, renderTabs, renderTreeHeader } from './tree';
+import { renderTree, renderTabs, renderTreeHeader, updateActiveTreeNode } from './tree';
 import { renderPreview, restoreScroll, attachScrollListener } from './preview';
 import { setupSearch } from './search';
 import { inkManager } from './ink';
@@ -42,7 +42,7 @@ const editStatus = $<HTMLElement>('edit-status');
 const recentlySaved = new Map<string, number>();
 
 let safPollTimer: number | undefined;
-let lastSafSignature = '';
+let lastTreeSignature = '';
 let safScanning = false;
 
 /** 预览内容元素（居中限宽层；article 只是整宽滚动容器） */
@@ -217,7 +217,7 @@ async function openTab(path: string, fragment?: string): Promise<void> {
   repaintTabs();
   showReader(); // 手机模式：列表 → 阅读
   showLoading();
-  expandAncestorsFor(path);
+  const expandedChanged = expandAncestorsFor(path);
 
   try {
     const r = await api.renderMd(path, theme.effective() === 'dark');
@@ -253,7 +253,11 @@ async function openTab(path: string, fragment?: string): Promise<void> {
     }
   }
   hideLoadingIfIdle();
-  repaintTree();
+  if (expandedChanged) {
+    repaintTree();
+  } else {
+    updateActiveTreeNode(treePanel, state.activePath);
+  }
   repaintTabs();
   updateStatus();
   await session.rememberFile(path);
@@ -271,19 +275,24 @@ function displayNameOf(path: string): string {
   return seg && seg.length > 0 ? seg : last;
 }
 
-function expandAncestorsFor(path: string): void {
+function expandAncestorsFor(path: string): boolean {
+  let changed = false;
   const walk = (nodes: TreeNode[]): void => {
     for (const n of nodes) {
       if (n.kind !== 'dir') continue;
       // SAF 路径分隔符是 %2F（编码的 /），两种都要匹配
       if (path.startsWith(n.path + '/') || path.startsWith(n.path + '%2F')) {
-        state.expanded.add(n.path);
+        if (!state.expanded.has(n.path)) {
+          state.expanded.add(n.path);
+          changed = true;
+        }
         walk(n.children ?? []);
         return;
       }
     }
   };
   walk(state.tree?.children ?? []);
+  return changed;
 }
 
 function findNodeInfo(path: string): { name: string; size: number; mtime: number } | null {
@@ -309,6 +318,8 @@ async function paintPreview(tab: Tab): Promise<void> {
     restoreScroll(article, tab.ratio);
     return;
   }
+  // 大文档走渐进式分块渲染：只在全部块插入后才恢复滚动位置，
+  // 否则中途测量 scrollHeight 会偏小，比例换算出的 scrollTop 完全不对。
   await renderPreview(article, tab, theme.effective() === 'dark', {
     onOpenFile: (p, frag) => void openTab(p, frag),
   });
@@ -372,7 +383,7 @@ function activateTab(path: string): void {
     }
     void session.rememberFile(path);
   }
-  repaintTree();
+  updateActiveTreeNode(treePanel, state.activePath);
   updateStatus();
 }
 
@@ -425,7 +436,7 @@ function closeTab(path: string): void {
     // 手机模式：最后一个标签关闭后回到列表视图
     if (isPhone && view === 'reader') showList();
   }
-  repaintTree();
+  updateActiveTreeNode(treePanel, state.activePath);
   updateStatus();
   void session.flush();
 }
@@ -456,6 +467,7 @@ function setRoot(opened: OpenedRoot, opts: { restoreFile?: boolean } = {}): void
   session.rememberRoot(opened.root);
   state.root = opened.root;
   state.tree = opened.tree;
+  lastTreeSignature = treeSignature(opened.tree);
   state.tabs = [];
   state.activePath = null;
   state.expanded = new Set<string>();
@@ -505,6 +517,7 @@ async function refreshTree(): Promise<void> {
   try {
     const tree = await api.scanTree(state.root);
     state.tree = tree;
+    lastTreeSignature = treeSignature(tree);
     renderTreeHeader(treeHeader, tree, () => void refreshTree(), handleSortChange);
     repaintTree();
     updateStatus();
@@ -518,6 +531,14 @@ function applyTreeChanged(opened: OpenedRoot): void {
   const cur = state.root;
   if (cur && (cur.kind !== opened.root.kind || cur.loc !== opened.root.loc)) return;
   const wasNone = !cur;
+
+  const sig = treeSignature(opened.tree);
+  if (!wasNone && sig === lastTreeSignature) {
+    // 目录树签名未改变（文件与目录结构一致），无需推倒重建 DOM
+    return;
+  }
+  lastTreeSignature = sig;
+
   state.root = opened.root;
   state.tree = opened.tree;
   renderTreeHeader(treeHeader, state.tree, () => void refreshTree(), handleSortChange);
@@ -588,7 +609,7 @@ async function applyFileChanged(paths: string[]): Promise<void> {
 function startSafPoll(): void {
   if (!state.root || state.root.kind !== 'saf') return;
   if (safPollTimer) window.clearInterval(safPollTimer);
-  lastSafSignature = '';
+  lastTreeSignature = '';
   safScanning = false;
   safPollTimer = window.setInterval(() => {
     if (document.hidden || !state.root || state.root.kind !== 'saf') return;
@@ -599,8 +620,8 @@ function startSafPoll(): void {
       try {
         const tree = await api.scanTree(state.root!);
         const sig = treeSignature(tree);
-        if (sig !== lastSafSignature) {
-          lastSafSignature = sig;
+        if (sig !== lastTreeSignature) {
+          lastTreeSignature = sig;
           applyTreeChanged({ root: state.root!, tree });
           // 轮询后活动文件重新比对（SAF 无事件推送）
           const active = state.activePath;

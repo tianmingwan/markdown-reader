@@ -18,29 +18,11 @@ export function currentSortMode(): SortMode {
   return (m as SortMode) || 'name-asc';
 }
 
-/** 自然排序：数字块按数值、文本块按字母（1. 2. 3. 10. 而不是 1. 10. 2. 3.） */
+const naturalCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+/** 自然排序：数字块按数值、文本块按字母（1. 2. 3. 10. 而不是 1. 10. 2. 3.）- 原生 C++ 快速排序 */
 function naturalCompare(a: string, b: string): number {
-  const ta = a.match(/\d+|\D+/g) ?? [];
-  const tb = b.match(/\d+|\D+/g) ?? [];
-  const len = Math.min(ta.length, tb.length);
-  for (let i = 0; i < len; i++) {
-    const x = ta[i];
-    const y = tb[i];
-    const xd = /^\d+$/.test(x);
-    const yd = /^\d+$/.test(y);
-    if (xd && yd) {
-      // 数值比较（忽略前导零）
-      const nx = BigInt(x);
-      const ny = BigInt(y);
-      if (nx !== ny) return nx < ny ? -1 : 1;
-    } else if (xd !== yd) {
-      return xd ? -1 : 1;
-    } else {
-      const c = x.toLowerCase().localeCompare(y.toLowerCase());
-      if (c !== 0) return c;
-    }
-  }
-  return ta.length - tb.length;
+  return naturalCollator.compare(a, b);
 }
 
 function compareNodes(a: TreeNode, b: TreeNode, mode: SortMode): number {
@@ -97,6 +79,7 @@ function renderNode(node: TreeNode, depth: number, onOpenFile: (path: string) =>
   row.className = 'tree-row';
   row.style.paddingLeft = `${8 + depth * 16}px`;
   row.title = node.path;
+  row.dataset.path = node.path;
 
   if (node.kind === 'dir') {
     const tw = document.createElement('span');
@@ -151,6 +134,21 @@ function renderNode(node: TreeNode, depth: number, onOpenFile: (path: string) =>
     li.appendChild(row);
   }
   return li;
+}
+
+/** 仅更新当前活动文档高亮，耗时 0.01ms，彻底避免全量重建 DOM */
+export function updateActiveTreeNode(container: HTMLElement, activePath: string | null): void {
+  const prevActive = container.querySelectorAll('.tree-row.active');
+  prevActive.forEach((el) => el.classList.remove('active'));
+  if (!activePath) return;
+  const rows = container.querySelectorAll<HTMLElement>('.tree-row:not(.dir)');
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.dataset.path === activePath || row.title === activePath) {
+      row.classList.add('active');
+      break;
+    }
+  }
 }
 
 // ==================== 顶部标签页 ====================

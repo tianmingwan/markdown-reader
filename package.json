@@ -1,7 +1,7 @@
 {
   "name": "markdown-reader",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "description": "打开即预览的 Markdown 阅读器：Rust + Tauri 2，支持 Windows 桌面 + 安卓手机/平板（KaTeX / Mermaid / 语法高亮 / 多标签 / 全文搜索）",
   "scripts": {
@@ -9,7 +9,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "node tests/mermaid.test.mjs && node tests/editor.test.mjs",
+    "test": "node tests/mermaid.test.mjs && node tests/editor.test.mjs && node tests/chunker.test.mjs",
     "test:rust": "cargo test --manifest-path src-tauri/core/Cargo.toml"
   },
   "dependencies": {

@@ -3,6 +3,7 @@ import { state } from './state';
 import { api } from './api';
 import { recordPosition } from './session';
 import { renderMermaidIn } from './mermaid';
+import { CHUNK_TARGET, PROGRESSIVE_THRESHOLD, splitHtmlChunks } from './chunker';
 
 // KaTeX 按需懒加载（只加载一份，后续复用）；Mermaid 见 mermaid.ts
 let katexPromise: Promise<{ render: typeof import('katex').default; autoRender: any }> | null = null;
@@ -27,11 +28,66 @@ export interface PreviewHandlers {
   onOpenFile: (path: string, fragment?: string) => void;
 }
 
-/** 把 tab 渲染进预览区；返回恢复滚动位置的函数（异步加载完后需再次调用） */
+/** 进行中的渐进式分块渲染所用的动画帧句柄（0 表示没有） */
+let pendingChunkRaf = 0;
+/** 渲染代号：新渲染开始时递增，旧渲染据此放弃尚未插完的分块 */
+let renderGeneration = 0;
+
+/** 检测是否位于无法测量宽度的隐藏容器中（例如手机列表视图下的预览区） */
+function isUnmeasurable(el: HTMLElement): boolean {
+  try {
+    const cs = getComputedStyle(el);
+    return cs.display === 'none' || cs.visibility === 'hidden' || cs.contentVisibility === 'hidden';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 把 tab 渲染进预览区。
+ *
+ * 大文档走「渐进式分块渲染」：首块同步插入让首屏立即可见，其余块在后续动画帧里
+ * 逐块追加，主线程始终有喘息机会。返回的 Promise 在全部块插入后 resolve。
+ */
 export async function renderPreview(article: HTMLElement, tab: Tab, dark: boolean, handlers: PreviewHandlers): Promise<void> {
   // 内容写入居中的 .preview-content；article 只负责整宽滚动
   const content = (article.querySelector('#preview-content') as HTMLElement | null) ?? article;
-  content.innerHTML = tab.html;
+
+  // 切换文档 / 切换主题时，取消上一轮尚未插完的分块
+  if (pendingChunkRaf) {
+    cancelAnimationFrame(pendingChunkRaf);
+    pendingChunkRaf = 0;
+  }
+
+  // 每次渲染 +1；若渲染期间又发起了新渲染（切文档/切主题），本轮立即放弃补齐
+  const myRender = ++renderGeneration;
+
+  const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const tooBig = tab.html.length > PROGRESSIVE_THRESHOLD;
+  // 手机列表视图下预览区 display:none，同步插入不会产生布局成本，无需分块
+  const progressive = tooBig && !reduceMotion && !isUnmeasurable(content);
+
+  if (progressive) {
+    const chunks = splitHtmlChunks(tab.html);
+    // ① 首块同步插入 → 首屏很快可见
+    content.innerHTML = chunks[0];
+    // ② 其余块逐帧追加；每块后主动布局，把排版成本放在受控时机
+    for (let i = 1; i < chunks.length; i++) {
+      if (myRender !== renderGeneration) return; // 已被新渲染取代，放弃补齐
+      await new Promise<void>((resolve) => {
+        pendingChunkRaf = requestAnimationFrame(() => {
+          pendingChunkRaf = 0;
+          content.insertAdjacentHTML('beforeend', chunks[i]);
+          void content.offsetHeight; // 必须主动布局，否则滚动时集中补算导致严重掉帧
+          resolve();
+        });
+      });
+    }
+    if (myRender !== renderGeneration) return;
+  } else {
+    content.innerHTML = tab.html;
+  }
+
   attachClickHandlers(content, handlers);
 
   const tasks: Promise<void>[] = [];
@@ -109,7 +165,15 @@ export function attachScrollListener(
   );
 }
 
+/** 当前预览区正在使用的交互回调（点击监听只挂一次，避免重复渲染时监听器累积） */
+let activeHandlers: PreviewHandlers | null = null;
+let clickBound = false;
+
 function attachClickHandlers(article: HTMLElement, handlers: PreviewHandlers): void {
+  // 回调可能随调用点变化，每次渲染只更新引用
+  activeHandlers = handlers;
+  if (clickBound) return;
+  clickBound = true;
   article.addEventListener('click', async (e) => {
     const target = (e.target as HTMLElement).closest('a');
     if (!target) return;
@@ -138,7 +202,7 @@ function attachClickHandlers(article: HTMLElement, handlers: PreviewHandlers): v
           return;
         }
       }
-      if (path) handlers.onOpenFile(path, fragment || undefined);
+      if (path) activeHandlers?.onOpenFile(path, fragment || undefined);
     } else if (href.startsWith('http://') || href.startsWith('https://')) {
       e.preventDefault();
       void api.openExternal(href);

@@ -1,6 +1,6 @@
 [package]
 name = "mdreader"
-version = "0.2.1"
+version = "0.2.3"
 description = "markdown阅读器"
 authors = ["mdreader"]
 edition = "2021"
@@ -25,6 +25,7 @@ tokio = { version = "1", features = ["sync"] }
 mdreader-core = { path = "core" }
 
 [features]
+default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 
 [profile.release]
