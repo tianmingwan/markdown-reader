@@ -1,6 +1,6 @@
 [package]
 name = "mdreader"
-version = "0.2.3"
+version = "0.2.4"
 description = "markdown阅读器"
 authors = ["mdreader"]
 edition = "2021"

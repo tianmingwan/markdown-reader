@@ -132,8 +132,9 @@ jobs:
               let content = fs.readFileSync(file, "utf8");
               if (!content.includes("activity-ktx")) {
                 content = content.replace("dependencies {", `dependencies {\n    implementation("androidx.activity:activity-ktx:1.10.1")\n    implementation("androidx.lifecycle:lifecycle-process:2.10.0")`);
-                fs.writeFileSync(file, content);
               }
+              content = content.replace(/getByName\("release"\)\s*\{[\s\S]*?\}/, `getByName("release") {\n            isMinifyEnabled = false\n            signingConfig = signingConfigs.getByName("debug")\n        }`);
+              fs.writeFileSync(file, content);
             }
           '
 
@@ -141,7 +142,7 @@ jobs:
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: npm run tauri android build -- --apk --debug
+        run: npm run tauri android build -- --apk
 
       - name: prepare APK artifact
         run: |
@@ -176,7 +177,7 @@ jobs:
         run: |
           for f in apk-dist/*.apk; do
             [ -f "$f" ] || continue
-            cp "$f" "apk-dist/MarkdownReader-${{ github.ref_name }}-android-debug.apk"
+            cp "$f" "apk-dist/MarkdownReader-${{ github.ref_name }}-android.apk"
             break
           done
           gh release upload ${{ github.ref_name }} apk-dist/*.apk --clobber
